@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Response
@@ -19,10 +20,17 @@ def _resolve_ui_dist() -> Path | None:
     return None
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    service = get_rag_service()
+    service.ensure_ready()
+    yield
+
+
 def create_app() -> FastAPI:
     configure_logging()
     settings = get_settings()
-    app = FastAPI(title="Aegis RAG Lab", version="0.1.0")
+    app = FastAPI(title="Aegis RAG Lab", version="0.1.0", lifespan=lifespan)
     origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
     if origins:
         app.add_middleware(
@@ -43,11 +51,6 @@ def create_app() -> FastAPI:
         if ui_dist:
             return RedirectResponse(url="/ui")
         return {"name": "Aegis RAG Lab", "status": "ok", "docs": "/docs"}
-
-    @app.on_event("startup")
-    def on_startup() -> None:
-        service = get_rag_service()
-        service.ensure_ready()
 
     return app
 
