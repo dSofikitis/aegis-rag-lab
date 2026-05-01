@@ -25,6 +25,14 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 
 ## Quickstart (Docker)
 1. `docker compose up --build`
+2. Open `http://localhost:8000/ui`
+
+## UI (React)
+1. `cd ui`
+2. `npm install`
+3. `copy .env.example .env` and set `VITE_API_URL` if needed
+4. `npm run dev`
+5. Open `http://localhost:5173`
 
 ## Ingest documents
 CLI:
@@ -34,6 +42,10 @@ API:
 `curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{"documents": [{"source": "seed", "content": "Zero trust focuses on..."}]}'`
+
+File upload:
+`curl -X POST http://localhost:8000/ingest/files \
+  -F "files=@data/seed/security_notes.md"`
 
 ## Query
 `curl -X POST http://localhost:8000/query \

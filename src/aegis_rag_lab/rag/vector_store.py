@@ -10,17 +10,13 @@ from aegis_rag_lab.rag.models import DocumentChunk
 
 
 class VectorStore(Protocol):
-    def ensure_schema(self) -> None:
-        ...
+    def ensure_schema(self) -> None: ...
 
-    def add_documents(self, documents: list[DocumentChunk]) -> int:
-        ...
+    def add_documents(self, documents: list[DocumentChunk]) -> int: ...
 
-    def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]:
-        ...
+    def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]: ...
 
-    def stats(self) -> dict[str, int]:
-        ...
+    def stats(self) -> dict[str, int]: ...
 
 
 @dataclass
@@ -147,7 +143,15 @@ class PostgresVectorStore:
         from pgvector.psycopg import register_vector
 
         conn = psycopg.connect(self._database_url)
-        register_vector(conn)
+        try:
+            register_vector(conn)
+        except psycopg.ProgrammingError as exc:
+            if "vector type not found" not in str(exc):
+                conn.close()
+                raise
+            conn.rollback()
+            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            register_vector(conn)
         return conn
 
     @staticmethod

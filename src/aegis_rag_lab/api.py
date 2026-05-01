@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from aegis_rag_lab.deps import get_rag_service
+from aegis_rag_lab.rag.ingestion import load_documents_from_bytes
 from aegis_rag_lab.rag.models import DocumentInput
 
 router = APIRouter()
@@ -61,6 +62,22 @@ def ingest(payload: IngestRequest) -> IngestResponse:
         )
         for item in payload.documents
     ]
+    result = service.ingest_documents(documents)
+    return IngestResponse(**result)
+
+
+@router.post("/ingest/files", response_model=IngestResponse)
+async def ingest_files(files: list[UploadFile] = File(...)) -> IngestResponse:
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
+    service = get_rag_service()
+    documents: list[DocumentInput] = []
+    for uploaded in files:
+        content = await uploaded.read()
+        filename = uploaded.filename or "upload"
+        documents.extend(load_documents_from_bytes(filename, content))
+    if not documents:
+        raise HTTPException(status_code=400, detail="No supported content found.")
     result = service.ingest_documents(documents)
     return IngestResponse(**result)
 

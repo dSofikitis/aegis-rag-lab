@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://aegis:aegis@localhost:5432/aegis"
     redis_url: str = "redis://localhost:6379/0"
     log_level: str = "INFO"
+    allowed_origins: str = ""
     chunk_size: int = 800
     chunk_overlap: int = 120
     retrieval_k: int = 5

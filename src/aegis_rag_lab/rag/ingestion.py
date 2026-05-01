@@ -23,7 +23,7 @@ def load_documents_from_path(
     recursive: bool,
     extensions: Iterable[str] | None = None,
 ) -> list[DocumentInput]:
-    exts = {ext.lower() for ext in (extensions or [".md", ".txt", ".jsonl"]) }
+    exts = {ext.lower() for ext in (extensions or [".md", ".txt", ".jsonl"])}
     if path.is_file():
         files = [path]
     else:
@@ -35,7 +35,8 @@ def load_documents_from_path(
         if file.suffix.lower() not in exts:
             continue
         if file.suffix.lower() == ".jsonl":
-            documents.extend(_load_jsonl(file))
+            content = file.read_text(encoding="utf-8")
+            documents.extend(_load_jsonl_text(content, source_prefix=file.as_posix()))
             continue
         content = file.read_text(encoding="utf-8")
         documents.append(
@@ -46,6 +47,22 @@ def load_documents_from_path(
             )
         )
     return documents
+
+
+def load_documents_from_bytes(filename: str, content: bytes) -> list[DocumentInput]:
+    suffix = Path(filename).suffix.lower()
+    text = content.decode("utf-8", errors="ignore")
+    if suffix == ".jsonl":
+        return _load_jsonl_text(text, source_prefix=filename)
+    if not text.strip():
+        return []
+    return [
+        DocumentInput(
+            source=filename,
+            content=text,
+            metadata={"source_path": filename},
+        )
+    ]
 
 
 def ingest_documents(
@@ -81,24 +98,23 @@ def ingest_documents(
     return IngestResult(documents=len(documents), chunks=stored)
 
 
-def _load_jsonl(file: Path) -> list[DocumentInput]:
+def _load_jsonl_text(raw_text: str, source_prefix: str) -> list[DocumentInput]:
     documents: list[DocumentInput] = []
-    with file.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            content = record.get("content", "")
-            source = record.get("source") or file.as_posix()
-            metadata = record.get("metadata", {})
-            if not content:
-                continue
-            documents.append(
-                DocumentInput(
-                    source=source,
-                    content=content,
-                    metadata=metadata,
-                )
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        record = json.loads(line)
+        content = record.get("content", "")
+        source = record.get("source") or source_prefix
+        metadata = record.get("metadata", {})
+        if not content:
+            continue
+        documents.append(
+            DocumentInput(
+                source=source,
+                content=content,
+                metadata=metadata,
             )
+        )
     return documents
