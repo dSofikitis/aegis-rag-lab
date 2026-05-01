@@ -6,8 +6,7 @@ from aegis_rag_lab.config import Settings
 
 
 class LLMClient(Protocol):
-    def generate(self, question: str, context: str) -> str:
-        ...
+    def generate(self, question: str, context: str) -> str: ...
 
 
 class OpenAIChatLLM:

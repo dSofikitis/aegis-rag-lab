@@ -7,11 +7,9 @@ from aegis_rag_lab.config import Settings
 
 
 class Embedder(Protocol):
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        ...
+    def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
 
-    def embed_query(self, text: str) -> list[float]:
-        ...
+    def embed_query(self, text: str) -> list[float]: ...
 
 
 class OpenAIEmbedder:

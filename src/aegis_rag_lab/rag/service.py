@@ -83,7 +83,5 @@ class RagService:
     def _build_context(self, retrieved: list[DocumentChunk]) -> str:
         if not retrieved:
             return ""
-        joined = "\n\n".join(
-            f"Source: {doc.citation()}\n{doc.content}" for doc in retrieved
-        )
+        joined = "\n\n".join(f"Source: {doc.citation()}\n{doc.content}" for doc in retrieved)
         return joined[: self._settings.max_context_chars]
