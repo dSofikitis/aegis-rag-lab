@@ -1,0 +1,3 @@
+{"question": "What is the principle of least privilege?", "expected_keywords": ["least privilege", "minimum"], "expected_source": "data/seed/security_notes.md"}
+{"question": "Explain zero trust in one sentence.", "expected_keywords": ["zero trust", "verify"], "expected_source": "data/seed/security_notes.md"}
+{"question": "Why use defense in depth?", "expected_keywords": ["layer", "controls"], "expected_source": "data/seed/security_notes.md"}
