@@ -9,9 +9,15 @@ type Stats = {
     chunks: number;
 };
 
+type Citation = {
+    source: string;
+    content: string;
+    score?: number | null;
+};
+
 type QueryResponse = {
     answer: string;
-    citations: string[];
+    citations: Citation[];
     blocked?: boolean;
     reason?: string | null;
 };
@@ -31,7 +37,7 @@ export default function App() {
     const [ingestKind, setIngestKind] = useState<IngestKind>("");
     const [question, setQuestion] = useState("");
     const [answer, setAnswer] = useState("");
-    const [citations, setCitations] = useState<string[]>([]);
+    const [citations, setCitations] = useState<Citation[]>([]);
     const [blocked, setBlocked] = useState(false);
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -391,8 +397,23 @@ export default function App() {
                             {citations.length ? (
                                 <ul>
                                     {citations.map((citation, index) => (
-                                        <li key={`${citation}-${index}`} className="mono">
-                                            {citation}
+                                        <li
+                                            key={`${citation.source}-${index}`}
+                                            className="citation"
+                                        >
+                                            <div className="citation-head">
+                                                <span className="mono">
+                                                    {citation.source}
+                                                </span>
+                                                {typeof citation.score === "number" ? (
+                                                    <span className="citation-score">
+                                                        {citation.score.toFixed(3)}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <div className="citation-body">
+                                                {citation.content}
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>

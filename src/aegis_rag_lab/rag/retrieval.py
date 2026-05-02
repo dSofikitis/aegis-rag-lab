@@ -8,6 +8,7 @@ def retrieve_documents(
     embedder: Embedder,
     store: VectorStore,
     k: int,
-) -> list[DocumentChunk]:
+    min_similarity: float = 0.0,
+) -> list[tuple[float, DocumentChunk]]:
     query_embedding = embedder.embed_query(question)
-    return store.similarity_search(query_embedding, k)
+    return store.similarity_search(query_embedding, k, min_similarity)

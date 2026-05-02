@@ -14,9 +14,15 @@ class QueryRequest(BaseModel):
     question: str
 
 
+class Citation(BaseModel):
+    source: str
+    content: str
+    score: float | None = None
+
+
 class QueryResponse(BaseModel):
     answer: str
-    citations: list[str]
+    citations: list[Citation]
     blocked: bool = False
     reason: str | None = None
 

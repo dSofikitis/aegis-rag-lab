@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 120
     retrieval_k: int = 5
+    retrieval_min_similarity: float = 0.0
     max_context_chars: int = 4000
     guardrails_enabled: bool = True
     request_timeout_s: float = 20.0

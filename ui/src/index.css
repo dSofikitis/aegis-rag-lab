@@ -569,12 +569,43 @@ textarea::placeholder {
 }
 
 .citations li {
-    padding: 8px 12px;
+    padding: 10px 12px;
     border-radius: 6px;
     border: 2px solid var(--border);
     background: var(--surface-2);
     color: var(--text-mid);
+    font-size: 0.82rem;
+}
+
+.citation-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.citation-head .mono {
+    color: var(--text);
     font-size: 0.78rem;
+}
+
+.citation-score {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 2px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text-dim);
+}
+
+.citation-body {
+    color: var(--text-mid);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .alert {

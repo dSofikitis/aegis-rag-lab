@@ -64,32 +64,44 @@ class RagService:
 
     def retrieve_node(self, state: dict) -> dict:
         question = state.get("question", "")
-        retrieved = retrieve_documents(
+        scored = retrieve_documents(
             question,
             self._embedder,
             self._store,
             self._settings.retrieval_k,
+            self._settings.retrieval_min_similarity,
         )
         self._logger.info(
             "retrieve_complete",
             k=self._settings.retrieval_k,
-            hits=len(retrieved),
-            citations=[doc.citation() for doc in retrieved],
+            min_similarity=self._settings.retrieval_min_similarity,
+            hits=len(scored),
+            scores=[round(score, 3) for score, _ in scored],
+            citations=[doc.citation() for _, doc in scored],
         )
-        return {"retrieved": retrieved}
+        return {"retrieved": scored}
 
     def generate_node(self, state: dict) -> dict:
         question = state.get("question", "")
-        retrieved: list[DocumentChunk] = state.get("retrieved", [])
-        citations = [doc.citation() for doc in retrieved]
-        if not retrieved:
+        scored: list[tuple[float, DocumentChunk]] = state.get("retrieved", [])
+        citations = [
+            {
+                "source": doc.citation(),
+                "content": doc.content,
+                "score": round(score, 3),
+            }
+            for score, doc in scored
+        ]
+        if not scored:
             return {"answer": NO_CONTEXT_ANSWER, "citations": citations}
-        context = self._build_context(retrieved)
+        context = self._build_context(scored)
         answer = self._llm.generate(question, context)
         return {"answer": answer, "citations": citations}
 
-    def _build_context(self, retrieved: list[DocumentChunk]) -> str:
-        if not retrieved:
+    def _build_context(self, scored: list[tuple[float, DocumentChunk]]) -> str:
+        if not scored:
             return ""
-        joined = "\n\n".join(f"Source: {doc.citation()}\n{doc.content}" for doc in retrieved)
+        joined = "\n\n".join(
+            f"Source: {doc.citation()}\n{doc.content}" for _, doc in scored
+        )
         return joined[: self._settings.max_context_chars]
