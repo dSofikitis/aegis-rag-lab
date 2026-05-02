@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     embedding_dim: int = 1536
     embeddings_provider: str = "openai"
     llm_provider: str = "openai"
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = "gemma4:e2b"
+    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_request_timeout_s: float = 180.0
     vector_backend: str = "postgres"
     database_url: str = "postgresql+psycopg://aegis:aegis@localhost:5432/aegis"
     redis_url: str = "redis://localhost:6379/0"

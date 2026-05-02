@@ -27,6 +27,28 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 1. `docker compose up --build`
 2. Open `http://localhost:8000/ui`
 
+## Local-only profile (Gemma 4 via Ollama)
+Run a fully local stack with no external API keys. Uses `gemma4:e2b` for chat
+and `nomic-embed-text` (768-dim) for embeddings.
+
+1. In `.env` set:
+   ```
+   AEGIS_LLM_PROVIDER=ollama
+   AEGIS_EMBEDDINGS_PROVIDER=ollama
+   AEGIS_EMBEDDING_DIM=768
+   ```
+2. Bring up the stack with the `ollama` profile:
+   `docker compose --profile ollama up -d --build`
+3. First boot pulls ~7.5 GB of model weights — watch progress with
+   `docker compose logs -f ollama-init`. Queries will fail until that container
+   exits successfully.
+4. If you switch embedders later, the dimensionality changes and existing
+   pgvector rows become unusable. Wipe the DB with
+   `docker compose down -v` and re-ingest.
+
+GPU users: add an `nvidia` deploy stanza to the `ollama` service in
+`docker-compose.yml` (see Ollama docs).
+
 ## UI (React)
 1. `cd ui`
 2. `npm install`
@@ -57,9 +79,10 @@ File upload:
 
 ## Configuration
 Key environment variables (see .env.example for full list):
-- `AEGIS_OPENAI_API_KEY`
-- `AEGIS_OPENAI_MODEL`
-- `AEGIS_EMBEDDING_MODEL`
+- `AEGIS_LLM_PROVIDER` (openai | ollama | stub)
+- `AEGIS_EMBEDDINGS_PROVIDER` (openai | ollama | deterministic)
+- `AEGIS_OPENAI_API_KEY`, `AEGIS_OPENAI_MODEL`, `AEGIS_EMBEDDING_MODEL`
+- `AEGIS_OLLAMA_BASE_URL`, `AEGIS_OLLAMA_MODEL`, `AEGIS_OLLAMA_EMBEDDING_MODEL`
 - `AEGIS_VECTOR_BACKEND` (postgres or memory)
 - `AEGIS_GUARDRAILS_ENABLED`
 

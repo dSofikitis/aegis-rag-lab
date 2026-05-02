@@ -33,6 +33,29 @@ class OpenAIEmbedder:
         return self.embed_documents([text])[0]
 
 
+class OllamaEmbedder:
+    def __init__(self, settings: Settings) -> None:
+        from openai import OpenAI
+
+        self._client = OpenAI(
+            api_key="ollama",
+            base_url=f"{settings.ollama_base_url.rstrip('/')}/v1",
+        )
+        self._model = settings.ollama_embedding_model
+        self._timeout = settings.ollama_request_timeout_s
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        response = self._client.embeddings.create(
+            model=self._model,
+            input=texts,
+            timeout=self._timeout,
+        )
+        return [item.embedding for item in response.data]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]
+
+
 class DeterministicEmbedder:
     def __init__(self, settings: Settings) -> None:
         self._dim = settings.embedding_dim
@@ -58,6 +81,8 @@ def build_embedder(settings: Settings) -> Embedder:
     provider = settings.embeddings_provider.lower()
     if provider == "deterministic":
         return DeterministicEmbedder(settings)
+    if provider == "ollama":
+        return OllamaEmbedder(settings)
     if not settings.openai_api_key:
         logger = get_logger()
         logger.warning("openai_api_key_missing", component="embeddings", fallback="deterministic")
