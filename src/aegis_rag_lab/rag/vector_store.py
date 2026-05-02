@@ -95,17 +95,18 @@ class PostgresVectorStore:
                     doc.source,
                     doc.content,
                     json.dumps(doc.metadata),
-                    doc.embedding,
+                    _format_vector(doc.embedding or []),
                 )
                 for doc in documents
             ]
-            conn.executemany(
-                """
-                INSERT INTO documents (id, source, content, metadata, embedding)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                rows,
-            )
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO documents (id, source, content, metadata, embedding)
+                    VALUES (%s, %s, %s, %s, %s::vector)
+                    """,
+                    rows,
+                )
         return len(documents)
 
     def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]:
@@ -114,10 +115,10 @@ class PostgresVectorStore:
                 """
                 SELECT id, source, content, metadata
                 FROM documents
-                ORDER BY embedding <-> %s
+                ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (embedding, k),
+                (_format_vector(embedding), k),
             ).fetchall()
         return [
             DocumentChunk(
@@ -174,3 +175,7 @@ def _normalize_metadata(raw_value) -> dict:
     if isinstance(raw_value, str):
         return json.loads(raw_value)
     return raw_value
+
+
+def _format_vector(values: list[float]) -> str:
+    return "[" + ",".join(repr(float(v)) for v in values) + "]"
