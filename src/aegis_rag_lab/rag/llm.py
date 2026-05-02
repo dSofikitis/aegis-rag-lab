@@ -12,9 +12,10 @@ SYSTEM_PROMPT = (
     "You are a retrieval-augmented assistant. You must answer the user's "
     "question using ONLY the facts stated in the Context block. Treat the "
     "Context as ground truth even when it contradicts your prior knowledge. "
-    "Never use prior knowledge or invent facts. If the Context is empty or "
-    f'does not contain the answer, reply exactly: "{NO_CONTEXT_ANSWER}" '
-    "and nothing else."
+    "Never use prior knowledge or invent facts. Do not list sources or write "
+    "a 'Sources:' line; the system surfaces citations separately. "
+    "If the Context is empty or does not contain the answer, reply exactly: "
+    f'"{NO_CONTEXT_ANSWER}" and nothing else.'
 )
 
 
@@ -24,10 +25,8 @@ def _build_messages(question: str, context: str) -> list[dict[str, str]]:
         {
             "role": "user",
             "content": (
-                "Use only the Context below to answer the Question. After your "
-                "answer, on a new line, write 'Sources:' followed by a "
-                "comma-separated list of the source identifiers from the "
-                "Context that you actually used.\n\n"
+                "Answer the Question using only the Context below. Reply with "
+                "the answer text only — no source list, no preamble.\n\n"
                 f"Context:\n{context if context else '(empty)'}\n\n"
                 f"Question: {question}"
             ),
