@@ -6,6 +6,35 @@ from aegis_rag_lab.config import Settings
 from aegis_rag_lab.logging import get_logger
 
 
+NO_CONTEXT_ANSWER = "I cannot answer that based on the provided context."
+
+SYSTEM_PROMPT = (
+    "You are a retrieval-augmented assistant. You must answer the user's "
+    "question using ONLY the facts stated in the Context block. Treat the "
+    "Context as ground truth even when it contradicts your prior knowledge. "
+    "Never use prior knowledge or invent facts. If the Context is empty or "
+    f'does not contain the answer, reply exactly: "{NO_CONTEXT_ANSWER}" '
+    "and nothing else."
+)
+
+
+def _build_messages(question: str, context: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                "Use only the Context below to answer the Question. After your "
+                "answer, on a new line, write 'Sources:' followed by a "
+                "comma-separated list of the source identifiers from the "
+                "Context that you actually used.\n\n"
+                f"Context:\n{context if context else '(empty)'}\n\n"
+                f"Question: {question}"
+            ),
+        },
+    ]
+
+
 class LLMClient(Protocol):
     def generate(self, question: str, context: str) -> str: ...
 
@@ -21,26 +50,9 @@ class OpenAIChatLLM:
     def generate(self, question: str, context: str) -> str:
         response = self._client.chat.completions.create(
             model=self._model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a security-focused assistant. "
-                        "Answer with concise, cited responses."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Context:\n"
-                        f"{context}\n\n"
-                        "Question:\n"
-                        f"{question}\n\n"
-                        "Provide a short answer with citations."
-                    ),
-                },
-            ],
-            temperature=0.2,
+            messages=_build_messages(question, context),
+            temperature=0.1,
+            top_p=0.9,
             max_tokens=600,
             timeout=self._timeout,
         )
@@ -69,26 +81,9 @@ class OllamaChatLLM:
     def generate(self, question: str, context: str) -> str:
         response = self._client.chat.completions.create(
             model=self._model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a security-focused assistant. "
-                        "Answer with concise, cited responses."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Context:\n"
-                        f"{context}\n\n"
-                        "Question:\n"
-                        f"{question}\n\n"
-                        "Provide a short answer with citations."
-                    ),
-                },
-            ],
-            temperature=0.2,
+            messages=_build_messages(question, context),
+            temperature=0.1,
+            top_p=0.9,
             max_tokens=600,
             timeout=self._timeout,
         )

@@ -8,7 +8,7 @@ from aegis_rag_lab.rag.embeddings import build_embedder
 from aegis_rag_lab.rag.graph import build_graph
 from aegis_rag_lab.rag.guardrails import evaluate_prompt_safety
 from aegis_rag_lab.rag.ingestion import ingest_documents
-from aegis_rag_lab.rag.llm import build_llm
+from aegis_rag_lab.rag.llm import NO_CONTEXT_ANSWER, build_llm
 from aegis_rag_lab.rag.models import DocumentChunk, DocumentInput
 from aegis_rag_lab.rag.retrieval import retrieve_documents
 from aegis_rag_lab.rag.vector_store import build_vector_store
@@ -70,14 +70,22 @@ class RagService:
             self._store,
             self._settings.retrieval_k,
         )
+        self._logger.info(
+            "retrieve_complete",
+            k=self._settings.retrieval_k,
+            hits=len(retrieved),
+            citations=[doc.citation() for doc in retrieved],
+        )
         return {"retrieved": retrieved}
 
     def generate_node(self, state: dict) -> dict:
         question = state.get("question", "")
         retrieved: list[DocumentChunk] = state.get("retrieved", [])
+        citations = [doc.citation() for doc in retrieved]
+        if not retrieved:
+            return {"answer": NO_CONTEXT_ANSWER, "citations": citations}
         context = self._build_context(retrieved)
         answer = self._llm.generate(question, context)
-        citations = [doc.citation() for doc in retrieved]
         return {"answer": answer, "citations": citations}
 
     def _build_context(self, retrieved: list[DocumentChunk]) -> str:
