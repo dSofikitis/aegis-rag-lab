@@ -166,3 +166,14 @@ def list_sources() -> list[SourceSummary]:
         logger.exception("list_sources_failed", error=str(exc))
         raise HTTPException(status_code=503, detail=f"List sources failed: {exc}") from exc
     return [SourceSummary(**item) for item in result]
+
+
+@router.delete("/sources")
+def clear_sources() -> dict:
+    service = get_rag_service()
+    try:
+        removed = service.clear()
+    except Exception as exc:
+        logger.exception("clear_sources_failed", error=str(exc))
+        raise HTTPException(status_code=503, detail=f"Clear failed: {exc}") from exc
+    return {"removed": removed}
