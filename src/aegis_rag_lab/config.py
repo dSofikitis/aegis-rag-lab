@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     chunk_overlap: int = 120
     retrieval_k: int = 5
     retrieval_min_similarity: float = 0.0
+    rerank_enabled: bool = True
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_candidates: int = 20
     max_context_chars: int = 4000
     guardrails_enabled: bool = True
     request_timeout_s: float = 20.0

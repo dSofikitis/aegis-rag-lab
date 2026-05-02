@@ -10,11 +10,12 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 - CLI for ingestion and evaluation.
 
 ## Architecture
-- API: FastAPI
+- API: FastAPI (with SSE streaming on `/query/stream`)
 - Orchestrator: LangGraph
-- Vector store: Postgres + pgvector
+- Vector store: Postgres + pgvector (hnsw index)
+- Reranker: sentence-transformers cross-encoder (optional, on by default)
 - Cache: Redis (reserved for future use)
-- Observability: structlog (OpenTelemetry planned)
+- Observability: structlog with per-stage timings (embed, search, rerank, llm)
 
 ## Quickstart (local)
 1. Create a venv and install deps:
