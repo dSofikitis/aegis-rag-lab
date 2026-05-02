@@ -14,6 +14,7 @@ class RagState(TypedDict, total=False):
     citations: list[dict]
     blocked: bool
     reason: str
+    decompose_ms: float
     embed_ms: float
     search_ms: float
     rerank_ms: float

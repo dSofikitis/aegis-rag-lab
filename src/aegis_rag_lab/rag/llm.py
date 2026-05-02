@@ -9,13 +9,21 @@ from aegis_rag_lab.logging import get_logger
 NO_CONTEXT_ANSWER = "I cannot answer that based on the provided context."
 
 SYSTEM_PROMPT = (
-    "You are a retrieval-augmented assistant. You must answer the user's "
-    "question using ONLY the facts stated in the Context block. Treat the "
-    "Context as ground truth even when it contradicts your prior knowledge. "
-    "Never use prior knowledge or invent facts. Do not list sources or write "
-    "a 'Sources:' line; the system surfaces citations separately. "
-    "If the Context is empty or does not contain the answer, reply exactly: "
-    f'"{NO_CONTEXT_ANSWER}" and nothing else.'
+    "You are a retrieval-augmented assistant. Adapt your response to the "
+    "user's input style:\n\n"
+    "1. Greeting / thanks / small-talk (e.g. 'hi', 'thanks'): respond "
+    "briefly and politely, ignoring the Context.\n\n"
+    "2. Topic / keyword (a noun phrase, not a full question): present the "
+    "facts from the Context that concern that topic, in plain prose. If "
+    "the Context contains nothing about the topic, reply exactly: "
+    f'"{NO_CONTEXT_ANSWER}"\n\n'
+    "3. Substantive question: answer using ONLY the facts in the Context. "
+    "Treat the Context as ground truth even when it contradicts your "
+    "prior knowledge. Do not invent facts. If the Context is empty or "
+    "does not contain the answer, reply exactly: "
+    f'"{NO_CONTEXT_ANSWER}"\n\n'
+    "Never write a 'Sources:' line; the system surfaces citations "
+    "separately."
 )
 
 
@@ -25,19 +33,33 @@ def _build_messages(question: str, context: str) -> list[dict[str, str]]:
         {
             "role": "user",
             "content": (
-                "Answer the Question using only the Context below. Reply with "
-                "the answer text only — no source list, no preamble.\n\n"
                 f"Context:\n{context if context else '(empty)'}\n\n"
-                f"Question: {question}"
+                f"User input: {question}"
             ),
         },
     ]
+
+
+def _complete_chat(client, model: str, system: str, user: str, max_tokens: int, timeout: float) -> str:
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.1,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return response.choices[0].message.content or ""
 
 
 class LLMClient(Protocol):
     def generate(self, question: str, context: str) -> str: ...
 
     def generate_stream(self, question: str, context: str) -> Iterator[str]: ...
+
+    def complete(self, system: str, user: str, max_tokens: int = 200) -> str: ...
 
 
 def _stream_openai_chat(client, model: str, question: str, context: str, timeout: float) -> Iterator[str]:
@@ -80,6 +102,9 @@ class OpenAIChatLLM:
     def generate_stream(self, question: str, context: str) -> Iterator[str]:
         return _stream_openai_chat(self._client, self._model, question, context, self._timeout)
 
+    def complete(self, system: str, user: str, max_tokens: int = 200) -> str:
+        return _complete_chat(self._client, self._model, system, user, max_tokens, self._timeout)
+
 
 class StubLLM:
     def generate(self, question: str, context: str) -> str:
@@ -90,6 +115,9 @@ class StubLLM:
 
     def generate_stream(self, question: str, context: str) -> Iterator[str]:
         yield self.generate(question, context)
+
+    def complete(self, system: str, user: str, max_tokens: int = 200) -> str:
+        return ""
 
 
 class OllamaChatLLM:
@@ -116,6 +144,9 @@ class OllamaChatLLM:
 
     def generate_stream(self, question: str, context: str) -> Iterator[str]:
         return _stream_openai_chat(self._client, self._model, question, context, self._timeout)
+
+    def complete(self, system: str, user: str, max_tokens: int = 200) -> str:
+        return _complete_chat(self._client, self._model, system, user, max_tokens, self._timeout)
 
 
 def build_llm(settings: Settings) -> LLMClient:
