@@ -141,6 +141,11 @@ class RagService:
     def stats(self) -> dict[str, int]:
         return self._store.stats()
 
+    def clear(self) -> int:
+        removed = self._store.clear()
+        self._logger.info("clear_complete", removed=removed)
+        return removed
+
     def list_sources(self) -> list[dict]:
         documents = self._store.list_documents()
         grouped: dict[str, list[dict]] = {}

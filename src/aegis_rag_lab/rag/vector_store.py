@@ -23,6 +23,8 @@ class VectorStore(Protocol):
 
     def list_documents(self) -> list[DocumentChunk]: ...
 
+    def clear(self) -> int: ...
+
     def stats(self) -> dict[str, int]: ...
 
 
@@ -55,6 +57,11 @@ class InMemoryVectorStore:
 
     def list_documents(self) -> list[DocumentChunk]:
         return list(self._documents)
+
+    def clear(self) -> int:
+        count = len(self._documents)
+        self._documents = []
+        return count
 
     def stats(self) -> dict[str, int]:
         sources = {doc.source for doc in self._documents}
@@ -181,6 +188,12 @@ class PostgresVectorStore:
             )
             for row in rows
         ]
+
+    def clear(self) -> int:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM documents")
+                return cur.rowcount or 0
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:

@@ -142,6 +142,26 @@ export default function App() {
         URL.revokeObjectURL(url);
     };
 
+    const clearData = async () => {
+        if (!window.confirm("Delete all sources and chunks? This cannot be undone.")) {
+            return;
+        }
+        setSourcesLoading(true);
+        try {
+            const response = await fetch(`${apiBase}/sources`, { method: "DELETE" });
+            if (!response.ok) {
+                return;
+            }
+            setSources([]);
+            setExpandedSources(new Set());
+            await refreshStats();
+        } catch {
+            // ignore
+        } finally {
+            setSourcesLoading(false);
+        }
+    };
+
     const refreshStats = async () => {
         try {
             const response = await fetch(`${apiBase}/stats`);
@@ -347,7 +367,7 @@ export default function App() {
                         <span className="dot" />
                         {healthLabel}
                     </span> */}
-                    <button
+                    {/* <button
                         className="ghost btn-sm"
                         onClick={() => {
                             const el = document.getElementById("sources");
@@ -357,7 +377,7 @@ export default function App() {
                         }}
                     >
                         See data
-                    </button>
+                    </button> */}
                 </div>
             </nav>
 
@@ -617,6 +637,13 @@ export default function App() {
                                 disabled={!sources.length}
                             >
                                 Export JSON
+                            </button>
+                            <button
+                                className="danger btn-sm"
+                                onClick={clearData}
+                                disabled={sourcesLoading || !sources.length}
+                            >
+                                Clear data
                             </button>
                         </div>
                     </div>
