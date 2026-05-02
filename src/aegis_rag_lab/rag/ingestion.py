@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,9 @@ from aegis_rag_lab.rag.chunking import chunk_text
 from aegis_rag_lab.rag.embeddings import Embedder
 from aegis_rag_lab.rag.models import DocumentChunk, DocumentInput
 from aegis_rag_lab.rag.vector_store import VectorStore
+
+
+SUPPORTED_EXTENSIONS = {".md", ".txt", ".jsonl", ".pdf", ".docx", ".html", ".htm"}
 
 
 @dataclass
@@ -23,7 +27,7 @@ def load_documents_from_path(
     recursive: bool,
     extensions: Iterable[str] | None = None,
 ) -> list[DocumentInput]:
-    exts = {ext.lower() for ext in (extensions or [".md", ".txt", ".jsonl"])}
+    exts = {ext.lower() for ext in (extensions or SUPPORTED_EXTENSIONS)}
     if path.is_file():
         files = [path]
     else:
@@ -34,35 +38,56 @@ def load_documents_from_path(
     for file in files:
         if file.suffix.lower() not in exts:
             continue
-        if file.suffix.lower() == ".jsonl":
-            content = file.read_text(encoding="utf-8")
-            documents.extend(_load_jsonl_text(content, source_prefix=file.as_posix()))
-            continue
-        content = file.read_text(encoding="utf-8")
-        documents.append(
-            DocumentInput(
-                source=file.as_posix(),
-                content=content,
-                metadata={"source_path": file.as_posix()},
-            )
-        )
+        documents.extend(load_documents_from_bytes(file.as_posix(), file.read_bytes()))
     return documents
 
 
 def load_documents_from_bytes(filename: str, content: bytes) -> list[DocumentInput]:
     suffix = Path(filename).suffix.lower()
-    text = content.decode("utf-8", errors="ignore")
     if suffix == ".jsonl":
+        text = content.decode("utf-8", errors="ignore")
         return _load_jsonl_text(text, source_prefix=filename)
+    if suffix == ".pdf":
+        text = _extract_pdf(content)
+    elif suffix == ".docx":
+        text = _extract_docx(content)
+    elif suffix in {".html", ".htm"}:
+        text = _extract_html(content)
+    else:
+        text = content.decode("utf-8", errors="ignore")
     if not text.strip():
         return []
     return [
         DocumentInput(
             source=filename,
             content=text,
-            metadata={"source_path": filename},
+            metadata={"source_path": filename, "format": suffix.lstrip(".") or "text"},
         )
     ]
+
+
+def _extract_pdf(content: bytes) -> str:
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n\n".join(pages).strip()
+
+
+def _extract_docx(content: bytes) -> str:
+    from docx import Document
+
+    document = Document(io.BytesIO(content))
+    return "\n\n".join(p.text for p in document.paragraphs if p.text.strip()).strip()
+
+
+def _extract_html(content: bytes) -> str:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(content, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return soup.get_text(separator="\n", strip=True)
 
 
 def ingest_documents(

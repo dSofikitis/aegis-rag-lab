@@ -308,12 +308,12 @@ export default function App() {
                                 id="file-input"
                                 type="file"
                                 multiple
-                                accept=".md,.txt,.jsonl"
+                                accept=".md,.txt,.jsonl,.pdf,.docx,.html,.htm"
                                 onChange={(event) => handleFileChange(event.target.files)}
                             />
                             <label htmlFor="file-input">
                                 <span className="drop-title">Drop files or click to upload</span>
-                                <span className="drop-subtitle">.md · .txt · .jsonl</span>
+                                <span className="drop-subtitle">.md · .txt · .jsonl · .pdf · .docx · .html</span>
                             </label>
                         </div>
 
