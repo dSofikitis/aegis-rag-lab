@@ -14,7 +14,12 @@ class VectorStore(Protocol):
 
     def add_documents(self, documents: list[DocumentChunk]) -> int: ...
 
-    def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]: ...
+    def similarity_search(
+        self,
+        embedding: list[float],
+        k: int,
+        min_similarity: float = 0.0,
+    ) -> list[tuple[float, DocumentChunk]]: ...
 
     def stats(self) -> dict[str, int]: ...
 
@@ -33,13 +38,18 @@ class InMemoryVectorStore:
         self._documents.extend(documents)
         return len(documents)
 
-    def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]:
+    def similarity_search(
+        self,
+        embedding: list[float],
+        k: int,
+        min_similarity: float = 0.0,
+    ) -> list[tuple[float, DocumentChunk]]:
         scored = [
             (self._cosine_similarity(embedding, doc.embedding or []), doc)
             for doc in self._documents
         ]
         scored.sort(key=lambda item: item[0], reverse=True)
-        return [doc for _, doc in scored[:k]]
+        return [(score, doc) for score, doc in scored[:k] if score >= min_similarity]
 
     def stats(self) -> dict[str, int]:
         sources = {doc.source for doc in self._documents}
@@ -77,11 +87,11 @@ class PostgresVectorStore:
                 )
                 """
             )
+            conn.execute("DROP INDEX IF EXISTS idx_documents_embedding")
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_documents_embedding
-                ON documents USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 100)
+                CREATE INDEX idx_documents_embedding
+                ON documents USING hnsw (embedding vector_cosine_ops)
                 """
             )
 
@@ -109,26 +119,42 @@ class PostgresVectorStore:
                 )
         return len(documents)
 
-    def similarity_search(self, embedding: list[float], k: int) -> list[DocumentChunk]:
+    def similarity_search(
+        self,
+        embedding: list[float],
+        k: int,
+        min_similarity: float = 0.0,
+    ) -> list[tuple[float, DocumentChunk]]:
+        vec = _format_vector(embedding)
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, source, content, metadata
+                SELECT id, source, content, metadata,
+                       embedding <=> %s::vector AS distance
                 FROM documents
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (_format_vector(embedding), k),
+                (vec, vec, k),
             ).fetchall()
-        return [
-            DocumentChunk(
-                id=str(row[0]),
-                source=row[1],
-                content=row[2],
-                metadata=_normalize_metadata(row[3]),
+        results: list[tuple[float, DocumentChunk]] = []
+        for row in rows:
+            distance = float(row[4])
+            similarity = 1.0 - distance
+            if similarity < min_similarity:
+                continue
+            results.append(
+                (
+                    similarity,
+                    DocumentChunk(
+                        id=str(row[0]),
+                        source=row[1],
+                        content=row[2],
+                        metadata=_normalize_metadata(row[3]),
+                    ),
+                )
             )
-            for row in rows
-        ]
+        return results
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:

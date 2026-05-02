@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
+from typing import Iterator
 
 from aegis_rag_lab.config import Settings
 from aegis_rag_lab.logging import get_logger
@@ -10,8 +12,11 @@ from aegis_rag_lab.rag.guardrails import evaluate_prompt_safety
 from aegis_rag_lab.rag.ingestion import ingest_documents
 from aegis_rag_lab.rag.llm import NO_CONTEXT_ANSWER, build_llm
 from aegis_rag_lab.rag.models import DocumentChunk, DocumentInput
-from aegis_rag_lab.rag.retrieval import retrieve_documents
 from aegis_rag_lab.rag.vector_store import build_vector_store
+
+
+def _ms_since(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000.0, 1)
 
 
 class RagService:
@@ -38,23 +43,110 @@ class RagService:
         return asdict(result)
 
     def query(self, question: str) -> dict[str, object]:
+        total_start = time.perf_counter()
         state = self._graph.invoke({"question": question})
+        total_ms = _ms_since(total_start)
+        timings = {
+            "embed_ms": state.get("embed_ms"),
+            "search_ms": state.get("search_ms"),
+            "llm_ms": state.get("llm_ms"),
+            "total_ms": total_ms,
+        }
         if state.get("blocked"):
             return {
                 "answer": "Request blocked by guardrails.",
                 "citations": [],
                 "blocked": True,
                 "reason": state.get("reason"),
+                "timings": timings,
             }
         return {
             "answer": state.get("answer", ""),
             "citations": state.get("citations", []),
             "blocked": False,
             "reason": None,
+            "timings": timings,
         }
 
     def stats(self) -> dict[str, int]:
         return self._store.stats()
+
+    def query_stream(self, question: str) -> Iterator[dict]:
+        total_start = time.perf_counter()
+
+        if self._settings.guardrails_enabled:
+            result = evaluate_prompt_safety(question)
+            if not result.allowed:
+                yield {
+                    "type": "blocked",
+                    "reason": result.reason,
+                    "timings": {"total_ms": _ms_since(total_start)},
+                }
+                return
+
+        embed_start = time.perf_counter()
+        query_embedding = self._embedder.embed_query(question)
+        embed_ms = _ms_since(embed_start)
+
+        search_start = time.perf_counter()
+        scored = self._store.similarity_search(
+            query_embedding,
+            self._settings.retrieval_k,
+            self._settings.retrieval_min_similarity,
+        )
+        search_ms = _ms_since(search_start)
+
+        citations = [
+            {"source": doc.citation(), "content": doc.content, "score": round(score, 3)}
+            for score, doc in scored
+        ]
+
+        self._logger.info(
+            "retrieve_complete",
+            k=self._settings.retrieval_k,
+            min_similarity=self._settings.retrieval_min_similarity,
+            hits=len(scored),
+            scores=[round(score, 3) for score, _ in scored],
+            citations=[c["source"] for c in citations],
+            embed_ms=embed_ms,
+            search_ms=search_ms,
+        )
+
+        yield {
+            "type": "meta",
+            "citations": citations,
+            "embed_ms": embed_ms,
+            "search_ms": search_ms,
+        }
+
+        if not scored:
+            yield {"type": "token", "value": NO_CONTEXT_ANSWER}
+            yield {
+                "type": "done",
+                "timings": {
+                    "embed_ms": embed_ms,
+                    "search_ms": search_ms,
+                    "llm_ms": 0.0,
+                    "total_ms": _ms_since(total_start),
+                },
+            }
+            return
+
+        context = self._build_context(scored)
+        llm_start = time.perf_counter()
+        for token in self._llm.generate_stream(question, context):
+            yield {"type": "token", "value": token}
+        llm_ms = _ms_since(llm_start)
+
+        yield {
+            "type": "done",
+            "timings": {
+                "embed_ms": embed_ms,
+                "search_ms": search_ms,
+                "llm_ms": llm_ms,
+                "total_ms": _ms_since(total_start),
+            },
+        }
 
     def guardrails_node(self, state: dict) -> dict:
         if not self._settings.guardrails_enabled:
@@ -64,32 +156,53 @@ class RagService:
 
     def retrieve_node(self, state: dict) -> dict:
         question = state.get("question", "")
-        retrieved = retrieve_documents(
-            question,
-            self._embedder,
-            self._store,
+        embed_start = time.perf_counter()
+        query_embedding = self._embedder.embed_query(question)
+        embed_ms = _ms_since(embed_start)
+
+        search_start = time.perf_counter()
+        scored = self._store.similarity_search(
+            query_embedding,
             self._settings.retrieval_k,
+            self._settings.retrieval_min_similarity,
         )
+        search_ms = _ms_since(search_start)
+
         self._logger.info(
             "retrieve_complete",
             k=self._settings.retrieval_k,
-            hits=len(retrieved),
-            citations=[doc.citation() for doc in retrieved],
+            min_similarity=self._settings.retrieval_min_similarity,
+            hits=len(scored),
+            scores=[round(score, 3) for score, _ in scored],
+            citations=[doc.citation() for _, doc in scored],
+            embed_ms=embed_ms,
+            search_ms=search_ms,
         )
-        return {"retrieved": retrieved}
+        return {"retrieved": scored, "embed_ms": embed_ms, "search_ms": search_ms}
 
     def generate_node(self, state: dict) -> dict:
         question = state.get("question", "")
-        retrieved: list[DocumentChunk] = state.get("retrieved", [])
-        citations = [doc.citation() for doc in retrieved]
-        if not retrieved:
-            return {"answer": NO_CONTEXT_ANSWER, "citations": citations}
-        context = self._build_context(retrieved)
+        scored: list[tuple[float, DocumentChunk]] = state.get("retrieved", [])
+        citations = [
+            {
+                "source": doc.citation(),
+                "content": doc.content,
+                "score": round(score, 3),
+            }
+            for score, doc in scored
+        ]
+        if not scored:
+            return {"answer": NO_CONTEXT_ANSWER, "citations": citations, "llm_ms": 0.0}
+        context = self._build_context(scored)
+        llm_start = time.perf_counter()
         answer = self._llm.generate(question, context)
-        return {"answer": answer, "citations": citations}
+        llm_ms = _ms_since(llm_start)
+        return {"answer": answer, "citations": citations, "llm_ms": llm_ms}
 
-    def _build_context(self, retrieved: list[DocumentChunk]) -> str:
-        if not retrieved:
+    def _build_context(self, scored: list[tuple[float, DocumentChunk]]) -> str:
+        if not scored:
             return ""
-        joined = "\n\n".join(f"Source: {doc.citation()}\n{doc.content}" for doc in retrieved)
+        joined = "\n\n".join(
+            f"Source: {doc.citation()}\n{doc.content}" for _, doc in scored
+        )
         return joined[: self._settings.max_context_chars]

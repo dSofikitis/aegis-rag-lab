@@ -9,11 +9,40 @@ type Stats = {
     chunks: number;
 };
 
+type Citation = {
+    source: string;
+    content: string;
+    score?: number | null;
+};
+
+type Timings = {
+    embed_ms?: number | null;
+    search_ms?: number | null;
+    llm_ms?: number | null;
+    total_ms?: number | null;
+};
+
 type QueryResponse = {
     answer: string;
-    citations: string[];
+    citations: Citation[];
     blocked?: boolean;
     reason?: string | null;
+    timings?: Timings | null;
+};
+
+const gradeMs = (ms: number | null | undefined): string => {
+    if (ms === null || ms === undefined) return "t-unknown";
+    if (ms < 200) return "t-teal";
+    if (ms < 500) return "t-green";
+    if (ms < 2000) return "t-yellow";
+    if (ms < 5000) return "t-orange";
+    return "t-red";
+};
+
+const fmtMs = (ms: number | null | undefined): string => {
+    if (ms === null || ms === undefined) return "—";
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
 };
 
 type IngestKind = "ok" | "err" | "info" | "";
@@ -31,7 +60,8 @@ export default function App() {
     const [ingestKind, setIngestKind] = useState<IngestKind>("");
     const [question, setQuestion] = useState("");
     const [answer, setAnswer] = useState("");
-    const [citations, setCitations] = useState<string[]>([]);
+    const [citations, setCitations] = useState<Citation[]>([]);
+    const [timings, setTimings] = useState<Timings | null>(null);
     const [blocked, setBlocked] = useState(false);
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -173,27 +203,63 @@ export default function App() {
         setBusy(true);
         setAnswer("");
         setCitations([]);
+        setTimings(null);
         setBlocked(false);
         setBlockedReason(null);
 
         try {
-            const response = await fetch(`${apiBase}/query`, {
+            const response = await fetch(`${apiBase}/query/stream`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ question })
             });
-            if (!response.ok) {
+            if (!response.ok || !response.body) {
                 const errorText = await response.text();
                 setAnswer(`Query failed: ${errorText}`);
                 return;
             }
-            const result = (await response.json()) as QueryResponse;
-            setAnswer(result.answer || "");
-            setCitations(result.citations || []);
-            setBlocked(Boolean(result.blocked));
-            setBlockedReason(result.reason ?? null);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let answerText = "";
+
+            const handleEvent = (event: any) => {
+                if (event.type === "meta") {
+                    setCitations(event.citations || []);
+                } else if (event.type === "token") {
+                    answerText += event.value || "";
+                    setAnswer(answerText);
+                } else if (event.type === "done") {
+                    setTimings(event.timings || null);
+                } else if (event.type === "blocked") {
+                    setBlocked(true);
+                    setBlockedReason(event.reason ?? null);
+                    setTimings(event.timings || null);
+                } else if (event.type === "error") {
+                    setAnswer(`Query failed: ${event.detail}`);
+                }
+            };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let sep;
+                while ((sep = buffer.indexOf("\n\n")) !== -1) {
+                    const frame = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    const line = frame.trim();
+                    if (!line.startsWith("data:")) continue;
+                    const payload = line.slice(5).trim();
+                    if (!payload) continue;
+                    try {
+                        handleEvent(JSON.parse(payload));
+                    } catch {
+                        // ignore malformed frames
+                    }
+                }
+            }
         } catch {
             setAnswer("Query failed. Check the API and try again.");
         } finally {
@@ -276,12 +342,12 @@ export default function App() {
                                 id="file-input"
                                 type="file"
                                 multiple
-                                accept=".md,.txt,.jsonl"
+                                accept=".md,.txt,.jsonl,.pdf,.docx,.html,.htm"
                                 onChange={(event) => handleFileChange(event.target.files)}
                             />
                             <label htmlFor="file-input">
                                 <span className="drop-title">Drop files or click to upload</span>
-                                <span className="drop-subtitle">.md · .txt · .jsonl</span>
+                                <span className="drop-subtitle">.md · .txt · .jsonl · .pdf · .docx · .html</span>
                             </label>
                         </div>
 
@@ -364,6 +430,7 @@ export default function App() {
                                         setQuestion("");
                                         setAnswer("");
                                         setCitations([]);
+                                        setTimings(null);
                                         setBlocked(false);
                                         setBlockedReason(null);
                                     }}
@@ -386,13 +453,48 @@ export default function App() {
                             {answer ? <p>{answer}</p> : <p className="muted">No answer yet.</p>}
                         </div>
 
+                        {timings ? (
+                            <div className="timings">
+                                <span className={`chip ${gradeMs(timings.embed_ms)}`}>
+                                    embed <span className="chip-val">{fmtMs(timings.embed_ms)}</span>
+                                </span>
+                                <span className="chip-sep">+</span>
+                                <span className={`chip ${gradeMs(timings.search_ms)}`}>
+                                    search <span className="chip-val">{fmtMs(timings.search_ms)}</span>
+                                </span>
+                                <span className="chip-sep">+</span>
+                                <span className={`chip ${gradeMs(timings.llm_ms)}`}>
+                                    llm <span className="chip-val">{fmtMs(timings.llm_ms)}</span>
+                                </span>
+                                <span className="chip-sep">=</span>
+                                <span className={`chip ${gradeMs(timings.total_ms)} chip-total`}>
+                                    total <span className="chip-val">{fmtMs(timings.total_ms)}</span>
+                                </span>
+                            </div>
+                        ) : null}
+
                         <h3 className="sub-head">// citations</h3>
                         <div className="citations">
                             {citations.length ? (
                                 <ul>
                                     {citations.map((citation, index) => (
-                                        <li key={`${citation}-${index}`} className="mono">
-                                            {citation}
+                                        <li
+                                            key={`${citation.source}-${index}`}
+                                            className="citation"
+                                        >
+                                            <div className="citation-head">
+                                                <span className="mono">
+                                                    {citation.source}
+                                                </span>
+                                                {typeof citation.score === "number" ? (
+                                                    <span className="citation-score">
+                                                        {citation.score.toFixed(3)}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <div className="citation-body">
+                                                {citation.content}
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>

@@ -11,9 +11,12 @@ class RagState(TypedDict, total=False):
     question: str
     retrieved: list[DocumentChunk]
     answer: str
-    citations: list[str]
+    citations: list[dict]
     blocked: bool
     reason: str
+    embed_ms: float
+    search_ms: float
+    llm_ms: float
 
 
 def build_graph(service) -> object:
