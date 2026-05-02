@@ -27,9 +27,10 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 1. `docker compose up --build`
 2. Open `http://localhost:8000/ui`
 
-## Local-only profile (Gemma 4 via Ollama)
-Run a fully local stack with no external API keys. Uses `gemma4:e2b` for chat
-and `nomic-embed-text` (768-dim) for embeddings.
+## Local-only profile (Gemma via Ollama)
+Run a fully local stack with no external API keys. Default uses
+`gemma3:1b` (~815 MB) for chat and `nomic-embed-text` (768-dim) for
+embeddings — fast on most laptops, GPU-accelerated when available.
 
 1. In `.env` set:
    ```
@@ -39,15 +40,27 @@ and `nomic-embed-text` (768-dim) for embeddings.
    ```
 2. Bring up the stack with the `ollama` profile:
    `docker compose --profile ollama up -d --build`
-3. First boot pulls ~7.5 GB of model weights — watch progress with
-   `docker compose logs -f ollama-init`. Queries will fail until that container
-   exits successfully.
-4. If you switch embedders later, the dimensionality changes and existing
-   pgvector rows become unusable. Wipe the DB with
+3. First boot pulls ~1 GB of model weights for the default profile —
+   watch progress with `docker compose logs -f ollama-init`. Queries
+   will fail until that container exits successfully.
+4. If you switch embedders later, the dimensionality changes and
+   existing pgvector rows become unusable. Wipe the DB with
    `docker compose down -v` and re-ingest.
 
-GPU users: add an `nvidia` deploy stanza to the `ollama` service in
-`docker-compose.yml` (see Ollama docs).
+### Picking a chat model
+Override `AEGIS_OLLAMA_MODEL` for stronger answers at higher
+VRAM/latency cost:
+
+| Model | Size (q4) | Notes |
+|---|---|---|
+| `gemma3:1b` | ~815 MB | **Default.** Fast, solid for grounded RAG. |
+| `qwen2.5:1.5b` | ~1 GB | Strong instruction-following at small size. |
+| `llama3.2:3b` | ~2 GB | Better reasoning, still snappy. |
+| `phi3.5:3.8b` | ~2.2 GB | Excellent quality / size ratio. |
+| `gemma4:e2b` | ~7.2 GB | Multimodal (text/image/audio), 128K ctx. |
+
+GPU users: see the `nvidia` branch for a Compose file with the NVIDIA
+deploy stanza wired up.
 
 ## UI (React)
 1. `cd ui`

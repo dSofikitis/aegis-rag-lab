@@ -50,7 +50,7 @@ services:
     entrypoint: /bin/sh
     command:
       - -c
-      - "ollama pull gemma4:e2b && ollama pull nomic-embed-text"
+      - "ollama pull ${AEGIS_OLLAMA_MODEL:-gemma3:1b} && ollama pull ${AEGIS_OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}"
     restart: "no"
 
 volumes:
