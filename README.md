@@ -1,55 +1,88 @@
 # Aegis RAG Lab
 
-Agentic RAG platform for security-focused question answering, evals, and guardrails.
+> **Aegis** — from the Greek *aigís* (αἰγίς), the shield of Zeus and Athena.
+> Here it stands for the guardrail layer that protects retrieval-augmented
+> answers: prompt-injection checks, grounded prompting, and an empty-context
+> refusal contract.
+
+Agentic, security-focused RAG platform with guardrails, evals, and a fully
+local-only profile (no API keys required).
 
 ## Highlights
-- FastAPI service with ingestion, query, and stats endpoints.
-- LangGraph orchestration with prompt injection guardrails.
-- Postgres + pgvector vector store with Docker Compose setup.
-- Evaluation harness for retrieval and keyword grounding.
-- CLI for ingestion and evaluation.
+- FastAPI service: `/query`, **streaming `/query/stream` (SSE)**, `/ingest`,
+  `/ingest/files`, `/sources`, `/stats`, `/health`.
+- LangGraph orchestration with prompt-injection guardrails and an adaptive
+  system prompt (greeting / topic / question modes).
+- **MultiQuery decomposition** for multi-hop and list-style questions.
+- **HNSW vector index** + **cross-encoder reranker**
+  (`ms-marco-MiniLM-L-6-v2`) on top of bi-encoder retrieval.
+- File ingestion for **`.md` / `.txt` / `.jsonl` / `.pdf` / `.docx` /
+  `.html`**.
+- Per-stage observability: `decompose_ms / embed_ms / search_ms /
+  rerank_ms / llm_ms / total_ms` returned in the API and rendered as
+  color-graded chips in the UI.
+- Vercel-style React + TypeScript UI bundled with the API image; sources
+  tree browser with JSON export and clear-data control.
+- Local-only profile via Ollama sidecar (default `qwen2.5:3b` +
+  `nomic-embed-text`); NVIDIA GPU stanza available on the `nvidia`
+  branch.
 
 ## Architecture
-- API: FastAPI (with SSE streaming on `/query/stream`)
-- Orchestrator: LangGraph
-- Vector store: Postgres + pgvector (hnsw index)
-- Reranker: sentence-transformers cross-encoder (optional, on by default)
-- Cache: Redis (reserved for future use)
-- Observability: structlog with per-stage timings (embed, search, rerank, llm)
+- API: FastAPI (sync + SSE streaming).
+- Orchestrator: LangGraph (guardrails → retrieve → generate).
+- Retrieval: bi-encoder embed → pgvector HNSW top-N → optional
+  cross-encoder rerank → similarity threshold → top-k.
+- Query rewriting: optional LLM-based MultiQuery decomposition.
+- Vector store: Postgres + `pgvector` (HNSW, cosine ops).
+- LLM / embeddings: pluggable — `openai`, `ollama`, `stub`/`deterministic`.
+- Cache: Redis (reserved).
+- Observability: structlog with per-stage timings and structured event
+  logs (`retrieve_complete`, `ingest_complete`, etc.).
 
-## Quickstart (local)
-1. Create a venv and install deps:
-   `python -m venv .venv`
-   `pip install -e .[dev]`
-2. Run the API:
-   `uvicorn aegis_rag_lab.main:app --reload`
+## Quickstart (Docker, local-only profile — recommended)
+Default brings up Postgres, Redis, the API, and an Ollama sidecar that
+pulls `qwen2.5:3b` + `nomic-embed-text` on first boot:
 
-## Quickstart (Docker)
-1. `docker compose up --build`
-2. Open `http://localhost:8000/ui`
+```bash
+cp .env.example .env
+docker compose --profile ollama up -d --build
+docker compose logs -f ollama-init   # watch model pull (~2.25 GB on first boot)
+```
 
-## Local-only profile (Ollama)
-Run a fully local stack with no external API keys. Default uses
-`qwen2.5:3b` (~2 GB) for chat and `nomic-embed-text` (768-dim) for
-embeddings — strong grounding (handles negation correctly), fast on
-GPU and acceptable on CPU.
+Open http://localhost:8000/ui (UI) or http://localhost:8000/docs (Swagger).
 
-1. In `.env` set:
-   ```
-   AEGIS_LLM_PROVIDER=ollama
-   AEGIS_EMBEDDINGS_PROVIDER=ollama
-   AEGIS_EMBEDDING_DIM=768
-   ```
-2. Bring up the stack with the `ollama` profile:
-   `docker compose --profile ollama up -d --build`
-3. First boot pulls ~1 GB of model weights for the default profile —
-   watch progress with `docker compose logs -f ollama-init`. Queries
-   will fail until that container exits successfully.
-4. If you switch embedders later, the dimensionality changes and
-   existing pgvector rows become unusable. Wipe the DB with
-   `docker compose down -v` and re-ingest.
+## Quickstart (Docker, OpenAI)
+Set `AEGIS_OPENAI_API_KEY` in `.env`, leave `AEGIS_LLM_PROVIDER=openai` /
+`AEGIS_EMBEDDINGS_PROVIDER=openai`, then:
 
-### Picking a chat model
+```bash
+docker compose up -d --build
+```
+
+## Quickstart (local Python)
+```bash
+python -m venv .venv
+.venv\Scripts\activate                 # PowerShell: .\.venv\Scripts\Activate.ps1
+pip install -e .[dev]
+uvicorn aegis_rag_lab.main:app --reload
+```
+
+`AEGIS_VECTOR_BACKEND=memory` is the simplest option for a local run
+without Docker; for pgvector point `AEGIS_DATABASE_URL` at a running
+Postgres with the `vector` extension.
+
+## NVIDIA GPU
+The `nvidia` branch ships a `docker-compose.yml` with the
+`deploy.resources.reservations.devices` stanza wired up for the Ollama
+service. Requires the NVIDIA Container Toolkit on the host.
+
+```bash
+git checkout nvidia
+docker compose --profile ollama up -d --build
+docker compose exec ollama nvidia-smi   # verify the GPU is visible
+```
+
+## Picking a chat model
 Override `AEGIS_OLLAMA_MODEL` for stronger answers at higher
 VRAM/latency cost:
 
@@ -62,52 +95,74 @@ VRAM/latency cost:
 | `phi3.5:3.8b` | ~2.2 GB | Excellent quality / size ratio. |
 | `gemma4:e2b` | ~7.2 GB | Multimodal (text/image/audio), 128K ctx. |
 
-GPU users: see the `nvidia` branch for a Compose file with the NVIDIA
-deploy stanza wired up.
+## API
 
-## UI (React)
-1. `cd ui`
-2. `npm install`
-3. `copy .env.example .env` and set `VITE_API_URL` if needed
-4. `npm run dev`
-5. Open `http://localhost:5173`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Liveness probe. |
+| GET | `/stats` | Source / chunk counts. |
+| GET | `/sources` | Corpus grouped by source with chunk content. |
+| DELETE | `/sources` | Wipe all chunks. Returns `{ "removed": N }`. |
+| POST | `/ingest` | Ingest JSON-described documents. |
+| POST | `/ingest/files` | Multipart upload (md/txt/jsonl/pdf/docx/html). |
+| POST | `/query` | Buffered query, returns full answer + citations + timings. |
+| POST | `/query/stream` | SSE: `meta` (citations + retrieval timings) → `token` deltas → `done` (full timings). |
 
-## Ingest documents
-CLI:
-`aegis ingest --path data/seed --recursive`
-
-API:
-`curl -X POST http://localhost:8000/ingest \
+Inline ingest:
+```bash
+curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
-  -d '{"documents": [{"source": "seed", "content": "Zero trust focuses on..."}]}'`
+  -d '{"documents":[{"source":"seed","content":"Zero trust focuses on..."}]}'
+```
 
-File upload:
-`curl -X POST http://localhost:8000/ingest/files \
-  -F "files=@data/seed/security_notes.md"`
+File upload (PDF / DOCX / HTML / MD / TXT / JSONL):
+```bash
+curl -X POST http://localhost:8000/ingest/files \
+  -F "files=@data/seed/security_notes.md" \
+  -F "files=@papers/zero-trust.pdf"
+```
 
-## Query
-`curl -X POST http://localhost:8000/query \
+Streaming query (SSE):
+```bash
+curl -N -X POST http://localhost:8000/query/stream \
   -H "Content-Type: application/json" \
-  -d '{"question": "What is least privilege?"}'`
+  -d '{"question":"What is least privilege?"}'
+```
 
-## Evaluation harness
-`aegis eval --dataset data/eval/sample_eval.jsonl --no-llm`
+## CLI
+```bash
+aegis ingest --path data/seed --recursive
+aegis eval   --dataset data/eval/sample_eval.jsonl --no-llm
+```
 
 ## Configuration
-Key environment variables (see .env.example for full list):
-- `AEGIS_LLM_PROVIDER` (openai | ollama | stub)
-- `AEGIS_EMBEDDINGS_PROVIDER` (openai | ollama | deterministic)
-- `AEGIS_OPENAI_API_KEY`, `AEGIS_OPENAI_MODEL`, `AEGIS_EMBEDDING_MODEL`
-- `AEGIS_OLLAMA_BASE_URL`, `AEGIS_OLLAMA_MODEL`, `AEGIS_OLLAMA_EMBEDDING_MODEL`
-- `AEGIS_VECTOR_BACKEND` (postgres or memory)
-- `AEGIS_GUARDRAILS_ENABLED`
+Selected env vars (see `.env.example` for the full list):
 
-## Roadmap
-- [x] ingestion pipeline + chunking
-- [x] LangGraph orchestration
-- [x] eval harness
-- [x] guardrails + prompt injection checks
-- [ ] cloud deploy (Azure/GCP)
+- Provider selection: `AEGIS_LLM_PROVIDER` (`openai` | `ollama` | `stub`),
+  `AEGIS_EMBEDDINGS_PROVIDER` (`openai` | `ollama` | `deterministic`).
+- OpenAI: `AEGIS_OPENAI_API_KEY`, `AEGIS_OPENAI_MODEL`,
+  `AEGIS_EMBEDDING_MODEL`.
+- Ollama: `AEGIS_OLLAMA_BASE_URL`, `AEGIS_OLLAMA_MODEL`,
+  `AEGIS_OLLAMA_EMBEDDING_MODEL`, `AEGIS_OLLAMA_REQUEST_TIMEOUT_S`.
+- Retrieval: `AEGIS_RETRIEVAL_K`, `AEGIS_RETRIEVAL_MIN_SIMILARITY`.
+- Reranker: `AEGIS_RERANK_ENABLED`, `AEGIS_RERANK_MODEL`,
+  `AEGIS_RERANK_CANDIDATES`.
+- Decomposer: `AEGIS_DECOMPOSE_ENABLED`,
+  `AEGIS_DECOMPOSE_MAX_SUBQUERIES`,
+  `AEGIS_DECOMPOSE_MIN_QUESTION_LENGTH`.
+- Storage: `AEGIS_VECTOR_BACKEND` (`postgres` | `memory`),
+  `AEGIS_DATABASE_URL`.
+- Safety: `AEGIS_GUARDRAILS_ENABLED`.
+
+## Development
+```bash
+pip install -e .[dev]
+ruff check .
+pytest
+```
+
+The CI workflow (`.github/workflows/ci.yml`) runs lint and tests on
+push to `main` and on pull requests.
 
 ## License
 MIT. Copyright (c) 2026 @dSofikitis.

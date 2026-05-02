@@ -54,8 +54,11 @@ class RagService:
         search_start = time.perf_counter()
         seen_ids: set[str] = set()
         candidates: list[tuple[float, DocumentChunk]] = []
+        # Pass -1.0 (cosine floor) so the store returns top-k unfiltered.
+        # The relevance threshold is applied below, after optional reranking,
+        # so it works against either the cosine score or the rerank score.
         for emb in embeddings:
-            for score, doc in self._store.similarity_search(emb, candidate_k, 0.0):
+            for score, doc in self._store.similarity_search(emb, candidate_k, -1.0):
                 if doc.id in seen_ids:
                     continue
                 seen_ids.add(doc.id)
