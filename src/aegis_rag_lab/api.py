@@ -24,6 +24,7 @@ class Citation(BaseModel):
 
 
 class Timings(BaseModel):
+    decompose_ms: float | None = None
     embed_ms: float | None = None
     search_ms: float | None = None
     rerank_ms: float | None = None

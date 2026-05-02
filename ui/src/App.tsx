@@ -16,6 +16,7 @@ type Citation = {
 };
 
 type Timings = {
+    decompose_ms?: number | null;
     embed_ms?: number | null;
     search_ms?: number | null;
     rerank_ms?: number | null;
@@ -281,10 +282,10 @@ export default function App() {
                 </div>
                 <div className="nav-meta">
                     <span className="endpoint">{apiBase}</span>
-                    <span className={`pill ${health}`}>
+                    {/* <span className={`pill ${health}`}>
                         <span className="dot" />
                         {healthLabel}
-                    </span>
+                    </span> */}
                 </div>
             </nav>
 
@@ -456,6 +457,14 @@ export default function App() {
 
                         {timings ? (
                             <div className="timings">
+                                {typeof timings.decompose_ms === "number" ? (
+                                    <>
+                                        <span className={`chip ${gradeMs(timings.decompose_ms)}`}>
+                                            decompose <span className="chip-val">{fmtMs(timings.decompose_ms)}</span>
+                                        </span>
+                                        <span className="chip-sep">+</span>
+                                    </>
+                                ) : null}
                                 <span className={`chip ${gradeMs(timings.embed_ms)}`}>
                                     embed <span className="chip-val">{fmtMs(timings.embed_ms)}</span>
                                 </span>

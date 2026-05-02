@@ -6,11 +6,12 @@ from typing import Iterator
 
 from aegis_rag_lab.config import Settings
 from aegis_rag_lab.logging import get_logger
+from aegis_rag_lab.rag.decompose import build_decomposer
 from aegis_rag_lab.rag.embeddings import build_embedder
 from aegis_rag_lab.rag.graph import build_graph
 from aegis_rag_lab.rag.guardrails import evaluate_prompt_safety
 from aegis_rag_lab.rag.ingestion import ingest_documents
-from aegis_rag_lab.rag.llm import NO_CONTEXT_ANSWER, build_llm
+from aegis_rag_lab.rag.llm import build_llm
 from aegis_rag_lab.rag.models import DocumentChunk, DocumentInput
 from aegis_rag_lab.rag.reranker import build_reranker
 from aegis_rag_lab.rag.vector_store import build_vector_store
@@ -28,13 +29,21 @@ class RagService:
         self._store = build_vector_store(settings)
         self._llm = build_llm(settings)
         self._reranker = build_reranker(settings)
+        self._decomposer = build_decomposer(settings, self._llm)
         self._graph = build_graph(self)
 
     def _retrieve(
         self, question: str
     ) -> tuple[list[tuple[float, DocumentChunk]], dict[str, float]]:
+        decompose_ms = 0.0
+        sub_queries: list[str] = [question]
+        if self._decomposer:
+            decompose_start = time.perf_counter()
+            sub_queries = self._decomposer.decompose(question)
+            decompose_ms = _ms_since(decompose_start)
+
         embed_start = time.perf_counter()
-        query_embedding = self._embedder.embed_query(question)
+        embeddings = self._embedder.embed_documents(sub_queries)
         embed_ms = _ms_since(embed_start)
 
         candidate_k = (
@@ -43,7 +52,14 @@ class RagService:
             else self._settings.retrieval_k
         )
         search_start = time.perf_counter()
-        candidates = self._store.similarity_search(query_embedding, candidate_k, 0.0)
+        seen_ids: set[str] = set()
+        candidates: list[tuple[float, DocumentChunk]] = []
+        for emb in embeddings:
+            for score, doc in self._store.similarity_search(emb, candidate_k, 0.0):
+                if doc.id in seen_ids:
+                    continue
+                seen_ids.add(doc.id)
+                candidates.append((score, doc))
         search_ms = _ms_since(search_start)
 
         rerank_ms = 0.0
@@ -62,6 +78,8 @@ class RagService:
         ]
 
         timings = {"embed_ms": embed_ms, "search_ms": search_ms}
+        if self._decomposer:
+            timings["decompose_ms"] = decompose_ms
         if self._reranker:
             timings["rerank_ms"] = rerank_ms
 
@@ -70,6 +88,7 @@ class RagService:
             k=self._settings.retrieval_k,
             min_similarity=self._settings.retrieval_min_similarity,
             reranked=self._reranker is not None,
+            sub_queries=sub_queries,
             hits=len(scored),
             scores=[round(score, 3) for score, _ in scored],
             citations=[doc.citation() for _, doc in scored],
@@ -96,6 +115,7 @@ class RagService:
         state = self._graph.invoke({"question": question})
         total_ms = _ms_since(total_start)
         timings = {
+            "decompose_ms": state.get("decompose_ms"),
             "embed_ms": state.get("embed_ms"),
             "search_ms": state.get("search_ms"),
             "rerank_ms": state.get("rerank_ms"),
@@ -142,14 +162,6 @@ class RagService:
 
         yield {"type": "meta", "citations": citations, **timings}
 
-        if not scored:
-            yield {"type": "token", "value": NO_CONTEXT_ANSWER}
-            yield {
-                "type": "done",
-                "timings": {**timings, "llm_ms": 0.0, "total_ms": _ms_since(total_start)},
-            }
-            return
-
         context = self._build_context(scored)
         llm_start = time.perf_counter()
         for token in self._llm.generate_stream(question, context):
@@ -183,8 +195,6 @@ class RagService:
             }
             for score, doc in scored
         ]
-        if not scored:
-            return {"answer": NO_CONTEXT_ANSWER, "citations": citations, "llm_ms": 0.0}
         context = self._build_context(scored)
         llm_start = time.perf_counter()
         answer = self._llm.generate(question, context)
