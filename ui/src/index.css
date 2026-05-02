@@ -608,6 +608,80 @@ textarea::placeholder {
     word-break: break-word;
 }
 
+/* ---------- Timing chips ---------- */
+
+.timings {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: -4px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 2px solid var(--border-strong);
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: lowercase;
+    color: var(--text-mid);
+}
+
+.chip-val {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.chip-sep {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    padding: 0 2px;
+}
+
+.chip-total {
+    font-weight: 600;
+}
+
+.chip.t-teal {
+    color: #5eead4;
+    border-color: rgba(94, 234, 212, 0.4);
+    background: rgba(94, 234, 212, 0.08);
+}
+
+.chip.t-green {
+    color: var(--green);
+    border-color: rgba(0, 204, 136, 0.4);
+    background: var(--green-soft);
+}
+
+.chip.t-yellow {
+    color: #facc15;
+    border-color: rgba(250, 204, 21, 0.4);
+    background: rgba(250, 204, 21, 0.08);
+}
+
+.chip.t-orange {
+    color: var(--amber);
+    border-color: rgba(245, 166, 35, 0.4);
+    background: rgba(245, 166, 35, 0.08);
+}
+
+.chip.t-red {
+    color: var(--red);
+    border-color: rgba(255, 77, 79, 0.4);
+    background: var(--red-soft);
+}
+
+.chip.t-unknown {
+    opacity: 0.6;
+}
+
 .alert {
     border-radius: 8px;
     padding: 12px 14px;

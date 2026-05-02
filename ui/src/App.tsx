@@ -15,11 +15,34 @@ type Citation = {
     score?: number | null;
 };
 
+type Timings = {
+    embed_ms?: number | null;
+    search_ms?: number | null;
+    llm_ms?: number | null;
+    total_ms?: number | null;
+};
+
 type QueryResponse = {
     answer: string;
     citations: Citation[];
     blocked?: boolean;
     reason?: string | null;
+    timings?: Timings | null;
+};
+
+const gradeMs = (ms: number | null | undefined): string => {
+    if (ms === null || ms === undefined) return "t-unknown";
+    if (ms < 200) return "t-teal";
+    if (ms < 500) return "t-green";
+    if (ms < 2000) return "t-yellow";
+    if (ms < 5000) return "t-orange";
+    return "t-red";
+};
+
+const fmtMs = (ms: number | null | undefined): string => {
+    if (ms === null || ms === undefined) return "—";
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
 };
 
 type IngestKind = "ok" | "err" | "info" | "";
@@ -38,6 +61,7 @@ export default function App() {
     const [question, setQuestion] = useState("");
     const [answer, setAnswer] = useState("");
     const [citations, setCitations] = useState<Citation[]>([]);
+    const [timings, setTimings] = useState<Timings | null>(null);
     const [blocked, setBlocked] = useState(false);
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -179,6 +203,7 @@ export default function App() {
         setBusy(true);
         setAnswer("");
         setCitations([]);
+        setTimings(null);
         setBlocked(false);
         setBlockedReason(null);
 
@@ -198,6 +223,7 @@ export default function App() {
             const result = (await response.json()) as QueryResponse;
             setAnswer(result.answer || "");
             setCitations(result.citations || []);
+            setTimings(result.timings ?? null);
             setBlocked(Boolean(result.blocked));
             setBlockedReason(result.reason ?? null);
         } catch {
@@ -370,6 +396,7 @@ export default function App() {
                                         setQuestion("");
                                         setAnswer("");
                                         setCitations([]);
+                                        setTimings(null);
                                         setBlocked(false);
                                         setBlockedReason(null);
                                     }}
@@ -391,6 +418,26 @@ export default function App() {
                         <div className="answer">
                             {answer ? <p>{answer}</p> : <p className="muted">No answer yet.</p>}
                         </div>
+
+                        {timings ? (
+                            <div className="timings">
+                                <span className={`chip ${gradeMs(timings.embed_ms)}`}>
+                                    embed <span className="chip-val">{fmtMs(timings.embed_ms)}</span>
+                                </span>
+                                <span className="chip-sep">+</span>
+                                <span className={`chip ${gradeMs(timings.search_ms)}`}>
+                                    search <span className="chip-val">{fmtMs(timings.search_ms)}</span>
+                                </span>
+                                <span className="chip-sep">+</span>
+                                <span className={`chip ${gradeMs(timings.llm_ms)}`}>
+                                    llm <span className="chip-val">{fmtMs(timings.llm_ms)}</span>
+                                </span>
+                                <span className="chip-sep">=</span>
+                                <span className={`chip ${gradeMs(timings.total_ms)} chip-total`}>
+                                    total <span className="chip-val">{fmtMs(timings.total_ms)}</span>
+                                </span>
+                            </div>
+                        ) : null}
 
                         <h3 className="sub-head">// citations</h3>
                         <div className="citations">

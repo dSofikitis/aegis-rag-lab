@@ -20,11 +20,19 @@ class Citation(BaseModel):
     score: float | None = None
 
 
+class Timings(BaseModel):
+    embed_ms: float | None = None
+    search_ms: float | None = None
+    llm_ms: float | None = None
+    total_ms: float | None = None
+
+
 class QueryResponse(BaseModel):
     answer: str
     citations: list[Citation]
     blocked: bool = False
     reason: str | None = None
+    timings: Timings | None = None
 
 
 class DocumentIn(BaseModel):
