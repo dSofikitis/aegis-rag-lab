@@ -141,6 +141,23 @@ class RagService:
     def stats(self) -> dict[str, int]:
         return self._store.stats()
 
+    def list_sources(self) -> list[dict]:
+        documents = self._store.list_documents()
+        grouped: dict[str, list[dict]] = {}
+        for doc in documents:
+            grouped.setdefault(doc.source, []).append(
+                {
+                    "id": doc.id,
+                    "chunk_index": doc.metadata.get("chunk_index"),
+                    "format": doc.metadata.get("format"),
+                    "content": doc.content,
+                }
+            )
+        return [
+            {"source": source, "chunks": chunks}
+            for source, chunks in sorted(grouped.items())
+        ]
+
     def query_stream(self, question: str) -> Iterator[dict]:
         total_start = time.perf_counter()
 

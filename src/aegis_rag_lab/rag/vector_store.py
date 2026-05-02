@@ -21,6 +21,8 @@ class VectorStore(Protocol):
         min_similarity: float = 0.0,
     ) -> list[tuple[float, DocumentChunk]]: ...
 
+    def list_documents(self) -> list[DocumentChunk]: ...
+
     def stats(self) -> dict[str, int]: ...
 
 
@@ -50,6 +52,9 @@ class InMemoryVectorStore:
         ]
         scored.sort(key=lambda item: item[0], reverse=True)
         return [(score, doc) for score, doc in scored[:k] if score >= min_similarity]
+
+    def list_documents(self) -> list[DocumentChunk]:
+        return list(self._documents)
 
     def stats(self) -> dict[str, int]:
         sources = {doc.source for doc in self._documents}
@@ -155,6 +160,27 @@ class PostgresVectorStore:
                 )
             )
         return results
+
+    def list_documents(self) -> list[DocumentChunk]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, source, content, metadata
+                FROM documents
+                ORDER BY source,
+                         COALESCE((metadata->>'chunk_index')::int, 0),
+                         created_at
+                """
+            ).fetchall()
+        return [
+            DocumentChunk(
+                id=str(row[0]),
+                source=row[1],
+                content=row[2],
+                metadata=_normalize_metadata(row[3]),
+            )
+            for row in rows
+        ]
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:

@@ -32,6 +32,18 @@ type QueryResponse = {
     timings?: Timings | null;
 };
 
+type ChunkSummary = {
+    id: string;
+    chunk_index?: number | null;
+    format?: string | null;
+    content: string;
+};
+
+type SourceSummary = {
+    source: string;
+    chunks: ChunkSummary[];
+};
+
 const gradeMs = (ms: number | null | undefined): string => {
     if (ms === null || ms === undefined) return "t-unknown";
     if (ms < 200) return "t-teal";
@@ -68,10 +80,14 @@ export default function App() {
     const [blockedReason, setBlockedReason] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [dragActive, setDragActive] = useState(false);
+    const [sources, setSources] = useState<SourceSummary[]>([]);
+    const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+    const [sourcesLoading, setSourcesLoading] = useState(false);
 
     useEffect(() => {
         void refreshHealth();
         void refreshStats();
+        void refreshSources();
     }, []);
 
     const refreshHealth = async () => {
@@ -81,6 +97,49 @@ export default function App() {
         } catch {
             setHealth("offline");
         }
+    };
+
+    const refreshSources = async () => {
+        setSourcesLoading(true);
+        try {
+            const response = await fetch(`${apiBase}/sources`);
+            if (!response.ok) {
+                return;
+            }
+            const data = (await response.json()) as SourceSummary[];
+            setSources(data);
+        } catch {
+            // ignore
+        } finally {
+            setSourcesLoading(false);
+        }
+    };
+
+    const toggleSource = (source: string) => {
+        setExpandedSources((current) => {
+            const next = new Set(current);
+            if (next.has(source)) {
+                next.delete(source);
+            } else {
+                next.add(source);
+            }
+            return next;
+        });
+    };
+
+    const exportSources = () => {
+        const blob = new Blob([JSON.stringify(sources, null, 2)], {
+            type: "application/json"
+        });
+        const url = URL.createObjectURL(blob);
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `aegis-sources-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     };
 
     const refreshStats = async () => {
@@ -148,6 +207,7 @@ export default function App() {
             );
             setFiles([]);
             await refreshStats();
+            await refreshSources();
         } catch {
             setStatus("Upload failed. Check the API and try again.", "err");
         } finally {
@@ -191,6 +251,7 @@ export default function App() {
             );
             setNoteText("");
             await refreshStats();
+            await refreshSources();
         } catch {
             setStatus("Ingest failed. Check the API and try again.", "err");
         } finally {
@@ -286,6 +347,17 @@ export default function App() {
                         <span className="dot" />
                         {healthLabel}
                     </span> */}
+                    <button
+                        className="ghost btn-sm"
+                        onClick={() => {
+                            const el = document.getElementById("sources");
+                            if (el) {
+                                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }
+                        }}
+                    >
+                        See data
+                    </button>
                 </div>
             </nav>
 
@@ -523,6 +595,87 @@ export default function App() {
                     </div>
                 </section>
             </main>
+
+            <section className="sources-section" id="sources">
+                <div className="card">
+                    <div className="card-header">
+                        <span className="card-title">Sources</span>
+                        <div className="card-actions">
+                            <span className="card-meta">
+                                GET /sources · {sources.length} source{sources.length === 1 ? "" : "s"}
+                            </span>
+                            <button
+                                className="ghost btn-sm"
+                                onClick={() => void refreshSources()}
+                                disabled={sourcesLoading}
+                            >
+                                Refresh
+                            </button>
+                            <button
+                                className="ghost btn-sm"
+                                onClick={exportSources}
+                                disabled={!sources.length}
+                            >
+                                Export JSON
+                            </button>
+                        </div>
+                    </div>
+                    <div className="card-body">
+                        {sources.length === 0 ? (
+                            <p className="muted">
+                                {sourcesLoading ? "Loading..." : "No sources ingested yet."}
+                            </p>
+                        ) : (
+                            <ul className="tree">
+                                {sources.map((s) => {
+                                    const isOpen = expandedSources.has(s.source);
+                                    return (
+                                        <li key={s.source} className="tree-node">
+                                            <button
+                                                type="button"
+                                                className={`tree-row ${isOpen ? "open" : ""}`}
+                                                onClick={() => toggleSource(s.source)}
+                                            >
+                                                <span className="tree-caret">
+                                                    {isOpen ? "▾" : "▸"}
+                                                </span>
+                                                <span className="tree-name mono">{s.source}</span>
+                                                <span className="tree-count">
+                                                    {s.chunks.length} chunk{s.chunks.length === 1 ? "" : "s"}
+                                                </span>
+                                                {s.chunks[0]?.format ? (
+                                                    <span className="tree-tag">
+                                                        {s.chunks[0].format}
+                                                    </span>
+                                                ) : null}
+                                            </button>
+                                            {isOpen ? (
+                                                <ul className="tree-children">
+                                                    {s.chunks.map((c) => (
+                                                        <li key={c.id} className="tree-leaf">
+                                                            <div className="tree-leaf-head">
+                                                                <span className="mono">
+                                                                    chunk-{c.chunk_index ?? 0}
+                                                                </span>
+                                                                <span className="mono tree-id">
+                                                                    {c.id.slice(0, 8)}
+                                                                </span>
+                                                            </div>
+                                                            <pre className="tree-leaf-body">
+                                                                {c.content}
+                                                            </pre>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : null}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </div>
+                </div>
+            </section>
         </div>
     );
 }
