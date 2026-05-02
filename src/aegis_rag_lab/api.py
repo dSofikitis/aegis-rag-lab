@@ -60,6 +60,18 @@ class StatsResponse(BaseModel):
     chunks: int
 
 
+class ChunkSummary(BaseModel):
+    id: str
+    chunk_index: int | None = None
+    format: str | None = None
+    content: str
+
+
+class SourceSummary(BaseModel):
+    source: str
+    chunks: list[ChunkSummary]
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -143,3 +155,14 @@ def stats() -> StatsResponse:
         logger.exception("stats_failed", error=str(exc))
         raise HTTPException(status_code=503, detail=f"Stats failed: {exc}") from exc
     return StatsResponse(**result)
+
+
+@router.get("/sources", response_model=list[SourceSummary])
+def list_sources() -> list[SourceSummary]:
+    service = get_rag_service()
+    try:
+        result = service.list_sources()
+    except Exception as exc:
+        logger.exception("list_sources_failed", error=str(exc))
+        raise HTTPException(status_code=503, detail=f"List sources failed: {exc}") from exc
+    return [SourceSummary(**item) for item in result]
