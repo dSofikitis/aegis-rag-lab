@@ -4,6 +4,7 @@ import hashlib
 from typing import Protocol
 
 from aegis_rag_lab.config import Settings
+from aegis_rag_lab.logging import get_logger
 
 
 class Embedder(Protocol):
@@ -56,5 +57,9 @@ class DeterministicEmbedder:
 def build_embedder(settings: Settings) -> Embedder:
     provider = settings.embeddings_provider.lower()
     if provider == "deterministic":
+        return DeterministicEmbedder(settings)
+    if not settings.openai_api_key:
+        logger = get_logger()
+        logger.warning("openai_api_key_missing", component="embeddings", fallback="deterministic")
         return DeterministicEmbedder(settings)
     return OpenAIEmbedder(settings)

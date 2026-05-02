@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from aegis_rag_lab.config import Settings
+from aegis_rag_lab.logging import get_logger
 
 
 class LLMClient(Protocol):
@@ -56,5 +57,9 @@ class StubLLM:
 
 def build_llm(settings: Settings) -> LLMClient:
     if settings.llm_provider.lower() == "stub":
+        return StubLLM()
+    if not settings.openai_api_key:
+        logger = get_logger()
+        logger.warning("openai_api_key_missing", component="llm", fallback="stub")
         return StubLLM()
     return OpenAIChatLLM(settings)
