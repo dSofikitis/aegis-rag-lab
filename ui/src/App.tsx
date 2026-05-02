@@ -16,16 +16,19 @@ type QueryResponse = {
     reason?: string | null;
 };
 
+type IngestKind = "ok" | "err" | "info" | "";
+
 const defaultStats: Stats = { sources: 0, chunks: 0 };
 
 export default function App() {
     const apiBase = useMemo(() => API_URL.replace(/\/$/, ""), []);
-    const [health, setHealth] = useState("checking");
+    const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
     const [stats, setStats] = useState<Stats>(defaultStats);
     const [files, setFiles] = useState<File[]>([]);
     const [noteSource, setNoteSource] = useState("note");
     const [noteText, setNoteText] = useState("");
     const [ingestStatus, setIngestStatus] = useState("");
+    const [ingestKind, setIngestKind] = useState<IngestKind>("");
     const [question, setQuestion] = useState("");
     const [answer, setAnswer] = useState("");
     const [citations, setCitations] = useState<string[]>([]);
@@ -81,13 +84,18 @@ export default function App() {
         setDragActive(event.type === "dragover");
     };
 
+    const setStatus = (text: string, kind: IngestKind) => {
+        setIngestStatus(text);
+        setIngestKind(kind);
+    };
+
     const uploadFiles = async () => {
         if (!files.length) {
-            setIngestStatus("Select at least one file first.");
+            setStatus("Select at least one file first.", "err");
             return;
         }
         setBusy(true);
-        setIngestStatus("Uploading and ingesting...");
+        setStatus("Uploading and ingesting...", "info");
         const formData = new FormData();
         files.forEach((file) => formData.append("files", file));
 
@@ -98,17 +106,18 @@ export default function App() {
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                setIngestStatus(`Upload failed: ${errorText}`);
+                setStatus(`Upload failed: ${errorText}`, "err");
                 return;
             }
             const result = await response.json();
-            setIngestStatus(
-                `Ingested ${result.documents} documents (${result.chunks} chunks).`
+            setStatus(
+                `Ingested ${result.documents} document(s) → ${result.chunks} chunks.`,
+                "ok"
             );
             setFiles([]);
             await refreshStats();
-        } catch (error) {
-            setIngestStatus("Upload failed. Check the API and try again.");
+        } catch {
+            setStatus("Upload failed. Check the API and try again.", "err");
         } finally {
             setBusy(false);
         }
@@ -116,11 +125,11 @@ export default function App() {
 
     const ingestNote = async () => {
         if (!noteText.trim()) {
-            setIngestStatus("Paste or type content before ingesting.");
+            setStatus("Paste or type content before ingesting.", "err");
             return;
         }
         setBusy(true);
-        setIngestStatus("Ingesting note...");
+        setStatus("Ingesting note...", "info");
         const payload = {
             documents: [
                 {
@@ -140,17 +149,18 @@ export default function App() {
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                setIngestStatus(`Ingest failed: ${errorText}`);
+                setStatus(`Ingest failed: ${errorText}`, "err");
                 return;
             }
             const result = await response.json();
-            setIngestStatus(
-                `Ingested ${result.documents} documents (${result.chunks} chunks).`
+            setStatus(
+                `Ingested ${result.documents} document(s) → ${result.chunks} chunks.`,
+                "ok"
             );
             setNoteText("");
             await refreshStats();
         } catch {
-            setIngestStatus("Ingest failed. Check the API and try again.");
+            setStatus("Ingest failed. Check the API and try again.", "err");
         } finally {
             setBusy(false);
         }
@@ -191,140 +201,205 @@ export default function App() {
         }
     };
 
+    const healthLabel =
+        health === "online" ? "operational" : health === "offline" ? "unreachable" : "checking";
+
     return (
         <div className="app">
+            <nav className="nav">
+                <div className="brand">
+                    <span className="brand-mark">A</span>
+                    <span className="brand-name">aegis-rag-lab</span>
+                    <span className="brand-tag">/ v0.1</span>
+                </div>
+                <div className="nav-meta">
+                    <span className="endpoint">{apiBase}</span>
+                    <span className={`pill ${health}`}>
+                        <span className="dot" />
+                        {healthLabel}
+                    </span>
+                </div>
+            </nav>
+
             <header className="hero">
-                <div>
-                    <p className="eyebrow">Aegis RAG Lab</p>
-                    <h1>Security-first RAG, with guardrails and evals.</h1>
+                <div className="hero-left">
+                    <p className="eyebrow">Agentic RAG · LangGraph · pgvector</p>
+                    <h1>
+                        Security-first retrieval, <em>with guardrails and evals.</em>
+                    </h1>
                     <p className="subtitle">
-                        Upload documents, ask questions, and inspect citations instantly.
+                        Upload documents, run queries through a guarded LangGraph pipeline, and
+                        inspect citations. Built for reproducible evaluation and zero-config local
+                        runs.
                     </p>
                 </div>
-                <div className="status-card">
-                    <div className="status-row">
-                        <span className={`status-dot ${health}`}></span>
-                        <span className="status-label">API {health}</span>
-                    </div>
-                    <div className="status-row">
-                        <span className="stat">
-                            <strong>{stats.sources}</strong> sources
-                        </span>
-                        <span className="stat">
-                            <strong>{stats.chunks}</strong> chunks
+
+                <aside className="status-panel">
+                    <div className="status-panel-header">
+                        <span>// runtime</span>
+                        <span className={`pill ${health}`}>
+                            <span className="dot" />
+                            {healthLabel}
                         </span>
                     </div>
-                    <div className="status-row mono">{apiBase}</div>
-                </div>
+                    <div className="status-rows">
+                        <div className="status-row">
+                            <span className="label">sources</span>
+                            <span className="value">{stats.sources}</span>
+                        </div>
+                        <div className="status-row">
+                            <span className="label">chunks</span>
+                            <span className="value">{stats.chunks}</span>
+                        </div>
+                        <div className="status-row">
+                            <span className="label">endpoint</span>
+                            <span className="value">{apiBase.replace(/^https?:\/\//, "")}</span>
+                        </div>
+                    </div>
+                </aside>
             </header>
 
             <main className="grid">
                 <section className="card">
-                    <h2>Ingest documents</h2>
-                    <div
-                        className={`dropzone ${dragActive ? "active" : ""}`}
-                        onDrop={handleDrop}
-                        onDragOver={handleDrag}
-                        onDragLeave={handleDrag}
-                    >
-                        <input
-                            id="file-input"
-                            type="file"
-                            multiple
-                            accept=".md,.txt,.jsonl"
-                            onChange={(event) => handleFileChange(event.target.files)}
-                        />
-                        <label htmlFor="file-input">
-                            <span className="drop-title">Drag files or click to upload</span>
-                            <span className="drop-subtitle">MD, TXT, JSONL supported</span>
-                        </label>
+                    <div className="card-header">
+                        <span className="card-title">Ingest</span>
+                        <span className="card-meta">POST /ingest · /ingest/files</span>
                     </div>
-                    <div className="file-list">
-                        {files.length ? (
-                            files.map((file) => (
-                                <div key={`${file.name}-${file.size}`} className="file-item">
-                                    <span>{file.name}</span>
-                                    <span className="mono">{Math.round(file.size / 1024)} KB</span>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="muted">No files selected yet.</p>
-                        )}
-                    </div>
-                    <div className="actions">
-                        <button onClick={uploadFiles} disabled={busy}>
-                            Upload and ingest
-                        </button>
-                        <button
-                            className="ghost"
-                            onClick={() => setFiles([])}
-                            disabled={busy}
+                    <div className="card-body">
+                        <div
+                            className={`dropzone ${dragActive ? "active" : ""}`}
+                            onDrop={handleDrop}
+                            onDragOver={handleDrag}
+                            onDragLeave={handleDrag}
                         >
-                            Clear files
-                        </button>
-                    </div>
+                            <input
+                                id="file-input"
+                                type="file"
+                                multiple
+                                accept=".md,.txt,.jsonl"
+                                onChange={(event) => handleFileChange(event.target.files)}
+                            />
+                            <label htmlFor="file-input">
+                                <span className="drop-title">Drop files or click to upload</span>
+                                <span className="drop-subtitle">.md · .txt · .jsonl</span>
+                            </label>
+                        </div>
 
-                    <div className="divider" />
+                        <div className="file-list">
+                            {files.length ? (
+                                files.map((file) => (
+                                    <div key={`${file.name}-${file.size}`} className="file-item">
+                                        <span>{file.name}</span>
+                                        <span className="mono">
+                                            {Math.round(file.size / 1024)} KB
+                                        </span>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="muted">No files queued.</p>
+                            )}
+                        </div>
 
-                    <h3>Quick note ingest</h3>
-                    <div className="stack">
-                        <input
-                            value={noteSource}
-                            onChange={(event) => setNoteSource(event.target.value)}
-                            placeholder="Source label"
-                        />
-                        <textarea
-                            value={noteText}
-                            onChange={(event) => setNoteText(event.target.value)}
-                            placeholder="Paste a paragraph or a security note..."
-                            rows={6}
-                        />
-                        <button onClick={ingestNote} disabled={busy}>
-                            Ingest note
-                        </button>
+                        <div className="actions">
+                            <button onClick={uploadFiles} disabled={busy}>
+                                Upload &amp; ingest
+                            </button>
+                            <button
+                                className="ghost"
+                                onClick={() => setFiles([])}
+                                disabled={busy || !files.length}
+                            >
+                                Clear
+                            </button>
+                        </div>
+
+                        <div className="divider" />
+
+                        <h3 className="sub-head">// quick note</h3>
+                        <div className="stack">
+                            <input
+                                value={noteSource}
+                                onChange={(event) => setNoteSource(event.target.value)}
+                                placeholder="source label (e.g. policy.md)"
+                            />
+                            <textarea
+                                value={noteText}
+                                onChange={(event) => setNoteText(event.target.value)}
+                                placeholder="Paste a paragraph or a security note..."
+                                rows={6}
+                            />
+                            <div className="actions">
+                                <button onClick={ingestNote} disabled={busy}>
+                                    Ingest note
+                                </button>
+                            </div>
+                        </div>
+
+                        {ingestStatus ? (
+                            <p className={`status-text ${ingestKind}`}>{ingestStatus}</p>
+                        ) : null}
                     </div>
-                    {ingestStatus ? <p className="status-text">{ingestStatus}</p> : null}
                 </section>
 
                 <section className="card">
-                    <h2>Ask a question</h2>
-                    <div className="stack">
-                        <textarea
-                            value={question}
-                            onChange={(event) => setQuestion(event.target.value)}
-                            placeholder="Ask about your uploaded documents..."
-                            rows={4}
-                        />
-                        <button onClick={runQuery} disabled={busy}>
-                            Run query
-                        </button>
+                    <div className="card-header">
+                        <span className="card-title">Query</span>
+                        <span className="card-meta">POST /query</span>
                     </div>
-
-                    {blocked ? (
-                        <div className="alert">
-                            <strong>Blocked by guardrails.</strong>
-                            <p className="muted">Reason: {blockedReason || "policy"}</p>
+                    <div className="card-body">
+                        <div className="stack">
+                            <textarea
+                                value={question}
+                                onChange={(event) => setQuestion(event.target.value)}
+                                placeholder="Ask a question about your indexed documents..."
+                                rows={4}
+                            />
+                            <div className="actions">
+                                <button onClick={runQuery} disabled={busy}>
+                                    Run query
+                                </button>
+                                <button
+                                    className="ghost"
+                                    onClick={() => {
+                                        setQuestion("");
+                                        setAnswer("");
+                                        setCitations([]);
+                                        setBlocked(false);
+                                        setBlockedReason(null);
+                                    }}
+                                    disabled={busy}
+                                >
+                                    Reset
+                                </button>
+                            </div>
                         </div>
-                    ) : null}
 
-                    <div className="answer">
-                        <h3>Answer</h3>
-                        {answer ? <p>{answer}</p> : <p className="muted">No answer yet.</p>}
-                    </div>
+                        {blocked ? (
+                            <div className="alert">
+                                <strong>Blocked by guardrails.</strong>
+                                <p>Reason: {blockedReason || "policy"}</p>
+                            </div>
+                        ) : null}
 
-                    <div className="citations">
-                        <h3>Citations</h3>
-                        {citations.length ? (
-                            <ul>
-                                {citations.map((citation, index) => (
-                                    <li key={`${citation}-${index}`} className="mono">
-                                        {citation}
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <p className="muted">No citations yet.</p>
-                        )}
+                        <h3 className="sub-head">// answer</h3>
+                        <div className="answer">
+                            {answer ? <p>{answer}</p> : <p className="muted">No answer yet.</p>}
+                        </div>
+
+                        <h3 className="sub-head">// citations</h3>
+                        <div className="citations">
+                            {citations.length ? (
+                                <ul>
+                                    {citations.map((citation, index) => (
+                                        <li key={`${citation}-${index}`} className="mono">
+                                            {citation}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="muted">No citations yet.</p>
+                            )}
+                        </div>
                     </div>
                 </section>
             </main>
