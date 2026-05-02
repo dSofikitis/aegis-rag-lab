@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from aegis_rag_lab.config import Settings
 from aegis_rag_lab.logging import get_logger
@@ -37,6 +37,26 @@ def _build_messages(question: str, context: str) -> list[dict[str, str]]:
 class LLMClient(Protocol):
     def generate(self, question: str, context: str) -> str: ...
 
+    def generate_stream(self, question: str, context: str) -> Iterator[str]: ...
+
+
+def _stream_openai_chat(client, model: str, question: str, context: str, timeout: float) -> Iterator[str]:
+    stream = client.chat.completions.create(
+        model=model,
+        messages=_build_messages(question, context),
+        temperature=0.1,
+        top_p=0.9,
+        max_tokens=600,
+        timeout=timeout,
+        stream=True,
+    )
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
+
 
 class OpenAIChatLLM:
     def __init__(self, settings: Settings) -> None:
@@ -57,6 +77,9 @@ class OpenAIChatLLM:
         )
         return response.choices[0].message.content or ""
 
+    def generate_stream(self, question: str, context: str) -> Iterator[str]:
+        return _stream_openai_chat(self._client, self._model, question, context, self._timeout)
+
 
 class StubLLM:
     def generate(self, question: str, context: str) -> str:
@@ -64,6 +87,9 @@ class StubLLM:
             return "No context available to answer the question."
         snippet = context[:400].strip()
         return f"Based on the available context: {snippet}"
+
+    def generate_stream(self, question: str, context: str) -> Iterator[str]:
+        yield self.generate(question, context)
 
 
 class OllamaChatLLM:
@@ -87,6 +113,9 @@ class OllamaChatLLM:
             timeout=self._timeout,
         )
         return response.choices[0].message.content or ""
+
+    def generate_stream(self, question: str, context: str) -> Iterator[str]:
+        return _stream_openai_chat(self._client, self._model, question, context, self._timeout)
 
 
 def build_llm(settings: Settings) -> LLMClient:

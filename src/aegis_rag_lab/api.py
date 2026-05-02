@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from aegis_rag_lab.deps import get_rag_service
@@ -69,6 +72,25 @@ def query(payload: QueryRequest) -> QueryResponse:
         logger.exception("query_failed", error=str(exc))
         raise HTTPException(status_code=503, detail=f"Query failed: {exc}") from exc
     return QueryResponse(**result)
+
+
+@router.post("/query/stream")
+def query_stream(payload: QueryRequest) -> StreamingResponse:
+    service = get_rag_service()
+
+    def event_stream():
+        try:
+            for event in service.query_stream(payload.question):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:
+            logger.exception("query_stream_failed", error=str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/ingest", response_model=IngestResponse)

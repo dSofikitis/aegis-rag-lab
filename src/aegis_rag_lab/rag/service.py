@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
+from typing import Iterator
 
 from aegis_rag_lab.config import Settings
 from aegis_rag_lab.logging import get_logger
@@ -69,6 +70,83 @@ class RagService:
 
     def stats(self) -> dict[str, int]:
         return self._store.stats()
+
+    def query_stream(self, question: str) -> Iterator[dict]:
+        total_start = time.perf_counter()
+
+        if self._settings.guardrails_enabled:
+            result = evaluate_prompt_safety(question)
+            if not result.allowed:
+                yield {
+                    "type": "blocked",
+                    "reason": result.reason,
+                    "timings": {"total_ms": _ms_since(total_start)},
+                }
+                return
+
+        embed_start = time.perf_counter()
+        query_embedding = self._embedder.embed_query(question)
+        embed_ms = _ms_since(embed_start)
+
+        search_start = time.perf_counter()
+        scored = self._store.similarity_search(
+            query_embedding,
+            self._settings.retrieval_k,
+            self._settings.retrieval_min_similarity,
+        )
+        search_ms = _ms_since(search_start)
+
+        citations = [
+            {"source": doc.citation(), "content": doc.content, "score": round(score, 3)}
+            for score, doc in scored
+        ]
+
+        self._logger.info(
+            "retrieve_complete",
+            k=self._settings.retrieval_k,
+            min_similarity=self._settings.retrieval_min_similarity,
+            hits=len(scored),
+            scores=[round(score, 3) for score, _ in scored],
+            citations=[c["source"] for c in citations],
+            embed_ms=embed_ms,
+            search_ms=search_ms,
+        )
+
+        yield {
+            "type": "meta",
+            "citations": citations,
+            "embed_ms": embed_ms,
+            "search_ms": search_ms,
+        }
+
+        if not scored:
+            yield {"type": "token", "value": NO_CONTEXT_ANSWER}
+            yield {
+                "type": "done",
+                "timings": {
+                    "embed_ms": embed_ms,
+                    "search_ms": search_ms,
+                    "llm_ms": 0.0,
+                    "total_ms": _ms_since(total_start),
+                },
+            }
+            return
+
+        context = self._build_context(scored)
+        llm_start = time.perf_counter()
+        for token in self._llm.generate_stream(question, context):
+            yield {"type": "token", "value": token}
+        llm_ms = _ms_since(llm_start)
+
+        yield {
+            "type": "done",
+            "timings": {
+                "embed_ms": embed_ms,
+                "search_ms": search_ms,
+                "llm_ms": llm_ms,
+                "total_ms": _ms_since(total_start),
+            },
+        }
 
     def guardrails_node(self, state: dict) -> dict:
         if not self._settings.guardrails_enabled:

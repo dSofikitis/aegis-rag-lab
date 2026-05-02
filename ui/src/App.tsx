@@ -208,24 +208,58 @@ export default function App() {
         setBlockedReason(null);
 
         try {
-            const response = await fetch(`${apiBase}/query`, {
+            const response = await fetch(`${apiBase}/query/stream`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ question })
             });
-            if (!response.ok) {
+            if (!response.ok || !response.body) {
                 const errorText = await response.text();
                 setAnswer(`Query failed: ${errorText}`);
                 return;
             }
-            const result = (await response.json()) as QueryResponse;
-            setAnswer(result.answer || "");
-            setCitations(result.citations || []);
-            setTimings(result.timings ?? null);
-            setBlocked(Boolean(result.blocked));
-            setBlockedReason(result.reason ?? null);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let answerText = "";
+
+            const handleEvent = (event: any) => {
+                if (event.type === "meta") {
+                    setCitations(event.citations || []);
+                } else if (event.type === "token") {
+                    answerText += event.value || "";
+                    setAnswer(answerText);
+                } else if (event.type === "done") {
+                    setTimings(event.timings || null);
+                } else if (event.type === "blocked") {
+                    setBlocked(true);
+                    setBlockedReason(event.reason ?? null);
+                    setTimings(event.timings || null);
+                } else if (event.type === "error") {
+                    setAnswer(`Query failed: ${event.detail}`);
+                }
+            };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let sep;
+                while ((sep = buffer.indexOf("\n\n")) !== -1) {
+                    const frame = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    const line = frame.trim();
+                    if (!line.startsWith("data:")) continue;
+                    const payload = line.slice(5).trim();
+                    if (!payload) continue;
+                    try {
+                        handleEvent(JSON.parse(payload));
+                    } catch {
+                        // ignore malformed frames
+                    }
+                }
+            }
         } catch {
             setAnswer("Query failed. Check the API and try again.");
         } finally {
