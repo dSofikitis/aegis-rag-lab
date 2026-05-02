@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     embeddings_provider: str = "openai"
     llm_provider: str = "openai"
     ollama_base_url: str = "http://ollama:11434"
-    ollama_model: str = "gemma3:1b"
+    ollama_model: str = "qwen2.5:3b"
     ollama_embedding_model: str = "nomic-embed-text"
     ollama_request_timeout_s: float = 180.0
     vector_backend: str = "postgres"
@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     chunk_overlap: int = 120
     retrieval_k: int = 5
     retrieval_min_similarity: float = 0.0
+    rerank_enabled: bool = True
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_candidates: int = 20
     max_context_chars: int = 4000
     guardrails_enabled: bool = True
     request_timeout_s: float = 20.0

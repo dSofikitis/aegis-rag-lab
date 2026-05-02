@@ -10,11 +10,12 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 - CLI for ingestion and evaluation.
 
 ## Architecture
-- API: FastAPI
+- API: FastAPI (with SSE streaming on `/query/stream`)
 - Orchestrator: LangGraph
-- Vector store: Postgres + pgvector
+- Vector store: Postgres + pgvector (hnsw index)
+- Reranker: sentence-transformers cross-encoder (optional, on by default)
 - Cache: Redis (reserved for future use)
-- Observability: structlog (OpenTelemetry planned)
+- Observability: structlog with per-stage timings (embed, search, rerank, llm)
 
 ## Quickstart (local)
 1. Create a venv and install deps:
@@ -27,10 +28,11 @@ Agentic RAG platform for security-focused question answering, evals, and guardra
 1. `docker compose up --build`
 2. Open `http://localhost:8000/ui`
 
-## Local-only profile (Gemma via Ollama)
+## Local-only profile (Ollama)
 Run a fully local stack with no external API keys. Default uses
-`gemma3:1b` (~815 MB) for chat and `nomic-embed-text` (768-dim) for
-embeddings — fast on most laptops, GPU-accelerated when available.
+`qwen2.5:3b` (~2 GB) for chat and `nomic-embed-text` (768-dim) for
+embeddings — strong grounding (handles negation correctly), fast on
+GPU and acceptable on CPU.
 
 1. In `.env` set:
    ```
@@ -53,9 +55,10 @@ VRAM/latency cost:
 
 | Model | Size (q4) | Notes |
 |---|---|---|
-| `gemma3:1b` | ~815 MB | **Default.** Fast, solid for grounded RAG. |
-| `qwen2.5:1.5b` | ~1 GB | Strong instruction-following at small size. |
-| `llama3.2:3b` | ~2 GB | Better reasoning, still snappy. |
+| `qwen2.5:3b` | ~2 GB | **Default.** Strong instruction-following, handles negation. |
+| `gemma3:1b` | ~815 MB | Fastest, but weak on negation and multi-clue questions. |
+| `qwen2.5:1.5b` | ~1 GB | Lighter Qwen with most of the grounding quality. |
+| `llama3.2:3b` | ~2 GB | Comparable size, good general reasoning. |
 | `phi3.5:3.8b` | ~2.2 GB | Excellent quality / size ratio. |
 | `gemma4:e2b` | ~7.2 GB | Multimodal (text/image/audio), 128K ctx. |
 

@@ -16,6 +16,7 @@ class RagState(TypedDict, total=False):
     reason: str
     embed_ms: float
     search_ms: float
+    rerank_ms: float
     llm_ms: float
 
 

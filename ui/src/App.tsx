@@ -18,6 +18,7 @@ type Citation = {
 type Timings = {
     embed_ms?: number | null;
     search_ms?: number | null;
+    rerank_ms?: number | null;
     llm_ms?: number | null;
     total_ms?: number | null;
 };
@@ -462,6 +463,14 @@ export default function App() {
                                 <span className={`chip ${gradeMs(timings.search_ms)}`}>
                                     search <span className="chip-val">{fmtMs(timings.search_ms)}</span>
                                 </span>
+                                {typeof timings.rerank_ms === "number" ? (
+                                    <>
+                                        <span className="chip-sep">+</span>
+                                        <span className={`chip ${gradeMs(timings.rerank_ms)}`}>
+                                            rerank <span className="chip-val">{fmtMs(timings.rerank_ms)}</span>
+                                        </span>
+                                    </>
+                                ) : null}
                                 <span className="chip-sep">+</span>
                                 <span className={`chip ${gradeMs(timings.llm_ms)}`}>
                                     llm <span className="chip-val">{fmtMs(timings.llm_ms)}</span>

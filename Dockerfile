@@ -16,12 +16,21 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/app/.cache/huggingface
 
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY --from=ui-build /ui/dist /app/ui/dist
 
-RUN pip install --no-cache-dir -e .
+# Install CPU-only torch first so the larger CUDA torch from PyPI is not pulled
+# in by sentence-transformers. Saves ~1.5 GB on the image.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+        torch && \
+    pip install --no-cache-dir -e .
+
+# Pre-download the cross-encoder so the first query doesn't pay for it.
+RUN python -c "from sentence_transformers import CrossEncoder; \
+CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 EXPOSE 8000
 

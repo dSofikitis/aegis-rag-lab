@@ -12,6 +12,7 @@ from aegis_rag_lab.rag.guardrails import evaluate_prompt_safety
 from aegis_rag_lab.rag.ingestion import ingest_documents
 from aegis_rag_lab.rag.llm import NO_CONTEXT_ANSWER, build_llm
 from aegis_rag_lab.rag.models import DocumentChunk, DocumentInput
+from aegis_rag_lab.rag.reranker import build_reranker
 from aegis_rag_lab.rag.vector_store import build_vector_store
 
 
@@ -26,7 +27,55 @@ class RagService:
         self._embedder = build_embedder(settings)
         self._store = build_vector_store(settings)
         self._llm = build_llm(settings)
+        self._reranker = build_reranker(settings)
         self._graph = build_graph(self)
+
+    def _retrieve(
+        self, question: str
+    ) -> tuple[list[tuple[float, DocumentChunk]], dict[str, float]]:
+        embed_start = time.perf_counter()
+        query_embedding = self._embedder.embed_query(question)
+        embed_ms = _ms_since(embed_start)
+
+        candidate_k = (
+            max(self._settings.retrieval_k, self._settings.rerank_candidates)
+            if self._reranker
+            else self._settings.retrieval_k
+        )
+        search_start = time.perf_counter()
+        candidates = self._store.similarity_search(query_embedding, candidate_k, 0.0)
+        search_ms = _ms_since(search_start)
+
+        rerank_ms = 0.0
+        if self._reranker and candidates:
+            rerank_start = time.perf_counter()
+            new_scores = self._reranker.rerank(
+                question, [doc.content for _, doc in candidates]
+            )
+            candidates = [(score, doc) for score, (_, doc) in zip(new_scores, candidates)]
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            rerank_ms = _ms_since(rerank_start)
+
+        threshold = self._settings.retrieval_min_similarity
+        scored = [item for item in candidates if item[0] >= threshold][
+            : self._settings.retrieval_k
+        ]
+
+        timings = {"embed_ms": embed_ms, "search_ms": search_ms}
+        if self._reranker:
+            timings["rerank_ms"] = rerank_ms
+
+        self._logger.info(
+            "retrieve_complete",
+            k=self._settings.retrieval_k,
+            min_similarity=self._settings.retrieval_min_similarity,
+            reranked=self._reranker is not None,
+            hits=len(scored),
+            scores=[round(score, 3) for score, _ in scored],
+            citations=[doc.citation() for _, doc in scored],
+            **{k: v for k, v in timings.items()},
+        )
+        return scored, timings
 
     def ensure_ready(self) -> None:
         self._store.ensure_schema()
@@ -49,6 +98,7 @@ class RagService:
         timings = {
             "embed_ms": state.get("embed_ms"),
             "search_ms": state.get("search_ms"),
+            "rerank_ms": state.get("rerank_ms"),
             "llm_ms": state.get("llm_ms"),
             "total_ms": total_ms,
         }
@@ -84,51 +134,19 @@ class RagService:
                 }
                 return
 
-        embed_start = time.perf_counter()
-        query_embedding = self._embedder.embed_query(question)
-        embed_ms = _ms_since(embed_start)
-
-        search_start = time.perf_counter()
-        scored = self._store.similarity_search(
-            query_embedding,
-            self._settings.retrieval_k,
-            self._settings.retrieval_min_similarity,
-        )
-        search_ms = _ms_since(search_start)
-
+        scored, timings = self._retrieve(question)
         citations = [
             {"source": doc.citation(), "content": doc.content, "score": round(score, 3)}
             for score, doc in scored
         ]
 
-        self._logger.info(
-            "retrieve_complete",
-            k=self._settings.retrieval_k,
-            min_similarity=self._settings.retrieval_min_similarity,
-            hits=len(scored),
-            scores=[round(score, 3) for score, _ in scored],
-            citations=[c["source"] for c in citations],
-            embed_ms=embed_ms,
-            search_ms=search_ms,
-        )
-
-        yield {
-            "type": "meta",
-            "citations": citations,
-            "embed_ms": embed_ms,
-            "search_ms": search_ms,
-        }
+        yield {"type": "meta", "citations": citations, **timings}
 
         if not scored:
             yield {"type": "token", "value": NO_CONTEXT_ANSWER}
             yield {
                 "type": "done",
-                "timings": {
-                    "embed_ms": embed_ms,
-                    "search_ms": search_ms,
-                    "llm_ms": 0.0,
-                    "total_ms": _ms_since(total_start),
-                },
+                "timings": {**timings, "llm_ms": 0.0, "total_ms": _ms_since(total_start)},
             }
             return
 
@@ -140,12 +158,7 @@ class RagService:
 
         yield {
             "type": "done",
-            "timings": {
-                "embed_ms": embed_ms,
-                "search_ms": search_ms,
-                "llm_ms": llm_ms,
-                "total_ms": _ms_since(total_start),
-            },
+            "timings": {**timings, "llm_ms": llm_ms, "total_ms": _ms_since(total_start)},
         }
 
     def guardrails_node(self, state: dict) -> dict:
@@ -156,29 +169,8 @@ class RagService:
 
     def retrieve_node(self, state: dict) -> dict:
         question = state.get("question", "")
-        embed_start = time.perf_counter()
-        query_embedding = self._embedder.embed_query(question)
-        embed_ms = _ms_since(embed_start)
-
-        search_start = time.perf_counter()
-        scored = self._store.similarity_search(
-            query_embedding,
-            self._settings.retrieval_k,
-            self._settings.retrieval_min_similarity,
-        )
-        search_ms = _ms_since(search_start)
-
-        self._logger.info(
-            "retrieve_complete",
-            k=self._settings.retrieval_k,
-            min_similarity=self._settings.retrieval_min_similarity,
-            hits=len(scored),
-            scores=[round(score, 3) for score, _ in scored],
-            citations=[doc.citation() for _, doc in scored],
-            embed_ms=embed_ms,
-            search_ms=search_ms,
-        )
-        return {"retrieved": scored, "embed_ms": embed_ms, "search_ms": search_ms}
+        scored, timings = self._retrieve(question)
+        return {"retrieved": scored, **timings}
 
     def generate_node(self, state: dict) -> dict:
         question = state.get("question", "")
