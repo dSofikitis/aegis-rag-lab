@@ -165,4 +165,4 @@ The CI workflow (`.github/workflows/ci.yml`) runs lint and tests on
 push to `main` and on pull requests.
 
 ## License
-MIT. Copyright (c) 2026 @dSofikitis.
+MIT — © 2026 [Dimitris Sofikitis](https://dimitrisofikitis.com). See [LICENSE](LICENSE).
